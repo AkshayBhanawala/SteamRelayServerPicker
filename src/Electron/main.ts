@@ -83,6 +83,9 @@ const runElevated = (command: string, name: string = 'CS2 Server Monitor'): Prom
 app.whenReady().then(async () => {
 	if (process.env.NODE_ENV !== 'production') {
 		await installIpcLogger({ parent: mainWindow });
+	} else {
+		// Remove the default menu completely
+		Menu.setApplicationMenu(null);
 	}
 
 	ipcMain.handle('fetch-app-details', async (_, appId: string) => {
