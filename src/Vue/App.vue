@@ -925,6 +925,9 @@ declare global {
 	}
 }
 
+const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker`;
+const getPendingActionName = () => `${BASE_FIREWALL_RULE_NAME}--PendingFwAction`;
+
 // --- State Variables ---
 const isElectron = 'electronAPI' in window;
 const currentView = ref<'dashboard' | 'settings'>('dashboard');
@@ -946,29 +949,6 @@ const activeAppId = computed(() =>
 	selectedGame.value === 'custom' ? customAppId.value : selectedGame.value,
 );
 
-const gameDetails = computed(() => {
-	const map: Record<string, { title: string; desc: string }> = {
-		'730': {
-			title: 'Counter-Strike 2',
-			desc: 'Network relay architecture mapper and Windows Firewall configurator.',
-		},
-		'1422450': {
-			title: 'Deadlock',
-			desc: 'Optimize your hero shooter matchmaking by restricting routing nodes.',
-		},
-		'3065800': {
-			title: 'Marathon',
-			desc: 'Secure your extraction shooter connection routing via SDR.',
-		},
-	};
-	return (
-		map[activeAppId.value] || {
-			title: `App ID: ${activeAppId.value}`,
-			desc: 'Custom Steam Datagram Relay Tracker.',
-		}
-	);
-});
-const epochTime = computed(() => Math.floor(Date.now() / 1000));
 const filteredLocations = computed(() => {
 	if (!searchQuery.value)
 		return locations.value.filter((loc) => [`bom2`, `maa2`, `sgp`, `mad`, `ctut`].includes(loc.id));
@@ -1204,12 +1184,12 @@ onMounted(async () => {
 	loadSettings();
 	if (isElectron && window.electronAPI) {
 		isAdmin.value = await window.electronAPI.checkAdmin();
-		const pendingStr = localStorage.getItem('cs2_pending_fw_action');
+		const pendingStr = localStorage.getItem(getPendingActionName());
 		if (pendingStr && isAdmin.value) {
 			isProcessingFirewall.value = true;
 			const pending = JSON.parse(pendingStr);
 			await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
-			localStorage.removeItem('cs2_pending_fw_action');
+			localStorage.removeItem(getPendingActionName());
 			isProcessingFirewall.value = false;
 		}
 	}
@@ -1293,7 +1273,7 @@ const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel'
 
 	if (choice === 'restart') {
 		localStorage.setItem(
-			'cs2_pending_fw_action',
+			getPendingActionName(),
 			JSON.stringify({ ips: newBlocked, appId: activeAppId.value }),
 		);
 		await window.electronAPI.relaunchElevated();

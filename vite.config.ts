@@ -14,6 +14,7 @@ export default defineConfig((args) => {
 		build: {
 			outDir: 'dist',
 			emptyOutDir: true,
+			sourcemap: false,
 		},
 		plugins: [
 			vue(),

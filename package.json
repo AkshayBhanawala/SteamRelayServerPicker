@@ -1,5 +1,5 @@
 {
-	"name": "cs2-ping-dashboard",
+	"name": "steam-relay-server-picker",
 	"private": true,
 	"version": "1.0.0",
 	"type": "module",
@@ -7,37 +7,12 @@
 	"scripts": {
 		"dev:web": "vite --mode web",
 		"dev:electron": "vite --mode electron",
-		"build": "vue-tsc && vite build --mode electron && electron-builder",
+		"build": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts",
 		"preview": "vite preview"
-	},
-	"build": {
-		"appId": "com.th3az.cs2ping",
-		"productName": "CS2 Ping Dashboard",
-		"directories": {
-			"output": "release"
-		},
-		"files": [
-			"dist/**/*",
-			"dist-electron/**/*"
-		],
-		"win": {
-			"target": [
-				"portable"
-			]
-		},
-		"mac": {
-			"target": [
-				"dmg"
-			]
-		},
-		"linux": {
-			"target": [
-				"AppImage"
-			]
-		}
 	},
 	"dependencies": {
 		"@vscode/sudo-prompt": "^9.3.2",
+		"electron-log": "^5.4.4",
 		"ping": "^1.0.0",
 		"vue": "^3.5.39"
 	},

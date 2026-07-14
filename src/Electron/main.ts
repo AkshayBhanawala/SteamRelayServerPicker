@@ -7,19 +7,53 @@ import sudo from '@vscode/sudo-prompt';
 import fs from 'fs';
 import os from 'os';
 import { installIpcLogger } from 'electron-ipc-logger';
+import logger from 'electron-log/main';
+
+logger.initialize();
+logger.info(`Application is starting up...`);
+logger.info(`app.isPackaged?:`, app.isPackaged);
 
 const __filename = fileURLToPath(import.meta.url);
-console.log(`__filename:`, __filename);
+logger.log(`__filename:`, __filename);
 
 const __dirname = dirname(__filename);
-console.log(`__dirname:`, __dirname);
+logger.log(`__dirname:`, __dirname);
 
-const BASE_APP_DIRECTORY = path.join(app.getPath('userData'), `SteamGamesServerPicker`);
-const BASE_FIREWALL_RULE_NAME = `_Steam-Relay-SDR-Block--`;
+const BASE_APP_DIRECTORY = path.join(app.getPath('userData'));
+const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker-SDRBlock--`;
 const getConfigFilePath = (appId: string) => path.join(BASE_APP_DIRECTORY, `blocked_ips_${appId}.json`);
 const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
 
 let mainWindow: BrowserWindow;
+const createWindow = () => {
+	mainWindow = new BrowserWindow({
+		width: 1200,
+		height: 850,
+		minWidth: 900,
+		minHeight: 600,
+		backgroundColor: '#020617',
+		webPreferences: {
+			preload: path.join(__dirname, 'preload.mjs'),
+			contextIsolation: true,
+			nodeIntegration: false,
+		},
+	});
+
+	if (app.isPackaged) {
+		// Built App
+		mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+	} else if (process.env.VITE_DEV_SERVER_URL) {
+		// Dev Running App
+		mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+	} else {
+		// Invalid run
+		mainWindow.loadURL('');
+	}
+
+	if (!fs.existsSync(BASE_APP_DIRECTORY)) {
+		fs.mkdirSync(BASE_APP_DIRECTORY);
+	}
+};
 
 // Helper: Check if running as Admin in Windows
 const checkAdmin = (): Promise<boolean> => {
@@ -36,42 +70,15 @@ const checkAdmin = (): Promise<boolean> => {
 	}
 };
 
-const createWindow = () => {
-	mainWindow = new BrowserWindow({
-		width: 1200,
-		height: 850,
-		minWidth: 900,
-		minHeight: 600,
-		backgroundColor: '#020617',
-		webPreferences: {
-			preload: path.join(__dirname, 'preload.mjs'),
-			contextIsolation: true,
-			nodeIntegration: false,
-		},
-	});
-
-	console.log(`process.env:`, process.env);
-
-	if (process.env.VITE_DEV_SERVER_URL) {
-		mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-	} else {
-		mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-	}
-
-	if (!fs.existsSync(BASE_APP_DIRECTORY)) {
-		fs.mkdirSync(BASE_APP_DIRECTORY);
-	}
-};
-
 const saveIpsLocally = (ips: string[], appId: string) => {
 	fs.writeFileSync(getConfigFilePath(appId), JSON.stringify(ips));
 };
 
-const runElevated = (command: string, name: string = 'CS2 Server Monitor'): Promise<boolean> => {
+const runElevated = (command: string, name: string = 'Steam Relay Server Picker'): Promise<boolean> => {
 	return new Promise((resolve) => {
 		sudo.exec(command, { name }, (error) => {
 			if (error) {
-				console.error(error);
+				logger.error(error);
 				resolve(false);
 			} else {
 				resolve(true);
@@ -81,11 +88,11 @@ const runElevated = (command: string, name: string = 'CS2 Server Monitor'): Prom
 };
 
 app.whenReady().then(async () => {
-	if (process.env.NODE_ENV !== 'production') {
-		await installIpcLogger({ parent: mainWindow });
-	} else {
+	if (app.isPackaged) {
 		// Remove the default menu completely
 		Menu.setApplicationMenu(null);
+	} else {
+		await installIpcLogger({ parent: mainWindow });
 	}
 
 	ipcMain.handle('fetch-app-details', async (_, appId: string) => {
@@ -140,7 +147,7 @@ app.whenReady().then(async () => {
 					const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
 					return JSON.parse(data);
 				} catch (e) {
-					console.error("Failed to parse blocked IPs JSON:", e);
+					logger.error("Failed to parse blocked IPs JSON:", e);
 					return [];
 				}
 			}
@@ -155,7 +162,7 @@ app.whenReady().then(async () => {
 
 		// --- WINDOWS (win32) ---
 		if (osName === 'win32') {
-			const tempScriptFileName = path.join(os.tmpdir(), `cs2-fw-sync-${Date.now()}.ps1`);
+			const tempScriptFileName = path.join(os.tmpdir(), `steam-relay-server-picker-fw-sync-${Date.now()}.ps1`);
 			const ipString = ips.map(ip => `'${ip}'`).join(',');
 			const psCommand = `
 				$ips = @(${ipString});
@@ -188,12 +195,12 @@ app.whenReady().then(async () => {
 		else if (osName === 'linux') {
 			// Linux uses iptables. We flush our custom chain, then add the new IPs.
 			let bashCommand = `
-				iptables -F CS2_BLOCK 2>/dev/null || iptables -N CS2_BLOCK;
-				iptables -D OUTPUT -j CS2_BLOCK 2>/dev/null;
-				iptables -I OUTPUT -j CS2_BLOCK;
+				iptables -F ${ruleName} 2>/dev/null || iptables -N ${ruleName};
+				iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
+				iptables -I OUTPUT -j ${ruleName};
 			`;
 			ips.forEach(ip => {
-				bashCommand += `iptables -A CS2_BLOCK -d ${ip} -j DROP; `;
+				bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
 			});
 
 			// Linux IPTables ALWAYS requires root
@@ -207,8 +214,8 @@ app.whenReady().then(async () => {
 			const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
 
 			const macCommand = `
-				echo '${anchorContent}' > /tmp/cs2_pf_rule;
-				pfctl -a com.cs2monitor -f /tmp/cs2_pf_rule;
+				echo '${anchorContent}' > /tmp/${ruleName}_pf_rule;
+				pfctl -a com.th3az.steam-relay-server-picker -f /tmp/${ruleName}_pf_rule;
 				pfctl -E;
 			`;
 
@@ -224,21 +231,36 @@ app.whenReady().then(async () => {
 	});
 
 	ipcMain.handle('relaunch-elevated', () => {
+		logger.info(`IPC handler for 'relaunch-elevated'`);
+		logger.info(`process.platform:`, process.platform);
+
 		if (process.platform === 'win32') {
 			const exePath = process.execPath;
+			logger.info(`exePath:`, exePath);
+
 			const args = [...process.argv.slice(1)];
+			logger.info(`args:`, args);
+
 			const cwd = process.cwd();
+			logger.info(`cwd:`, cwd);
 
 			if (process.env.VITE_DEV_SERVER_URL && !args.some(a => a.startsWith('--dev-server-url='))) {
 				args.push(`--dev-server-url=${process.env.VITE_DEV_SERVER_URL}`);
 			}
-			const psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : "''";
+			let psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : '';
+			logger.info(`psArgs:`, psArgs);
+			if (psArgs) {
+				psArgs = `-ArgumentList '${psArgs}'`;
+			}
 
-			exec(`powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' -ArgumentList ${psArgs} -WorkingDirectory '${cwd}' -Verb RunAs"`);
+			const psCmd = `powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' ${psArgs} -WorkingDirectory '${cwd}' -Verb RunAs"`;
+			logger.info(`psCmd:`, psCmd);
+
+			exec(psCmd);
 			app.quit();
 		} else {
 			// macOS/Linux: Do nothing, or log a warning. The UI shouldn't allow this to be clicked.
-			console.warn("Relaunching as root is not supported or recommended on POSIX systems.");
+			logger.warn("Relaunching as root is not supported or recommended on POSIX systems.");
 		}
 	});
 
