@@ -1,0 +1,245 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import ping from 'ping';
+import { exec } from 'child_process';
+import sudo from '@vscode/sudo-prompt';
+import fs from 'fs';
+import os from 'os';
+import { installIpcLogger } from 'electron-ipc-logger';
+
+const __filename = fileURLToPath(import.meta.url);
+console.log(`__filename:`, __filename);
+
+const __dirname = dirname(__filename);
+console.log(`__dirname:`, __dirname);
+
+const BASE_APP_DIRECTORY = path.join(app.getPath('userData'), `SteamGamesServerPicker`);
+const BASE_FIREWALL_RULE_NAME = `_Steam-Relay-SDR-Block--`;
+const getConfigFilePath = (appId: string) => path.join(BASE_APP_DIRECTORY, `blocked_ips_${appId}.json`);
+const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
+
+let mainWindow: BrowserWindow;
+
+// Helper: Check if running as Admin in Windows
+const checkAdmin = (): Promise<boolean> => {
+	const os = process.platform;
+	if (os === 'win32') {
+		return new Promise((resolve) => {
+			exec('net session', (err) => resolve(!err));
+		});
+	} else {
+		// macOS and Linux
+		// process.getuid() returns 0 if the process is running as root
+		const isRoot = process.getuid ? process.getuid() === 0 : false;
+		return Promise.resolve(isRoot);
+	}
+};
+
+const createWindow = () => {
+	mainWindow = new BrowserWindow({
+		width: 1200,
+		height: 850,
+		minWidth: 900,
+		minHeight: 600,
+		backgroundColor: '#020617',
+		webPreferences: {
+			preload: path.join(__dirname, 'preload.mjs'),
+			contextIsolation: true,
+			nodeIntegration: false,
+		},
+	});
+
+	console.log(`process.env:`, process.env);
+
+	if (process.env.VITE_DEV_SERVER_URL) {
+		mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+	}
+
+	if (!fs.existsSync(BASE_APP_DIRECTORY)) {
+		fs.mkdirSync(BASE_APP_DIRECTORY);
+	}
+};
+
+const saveIpsLocally = (ips: string[], appId: string) => {
+	fs.writeFileSync(getConfigFilePath(appId), JSON.stringify(ips));
+};
+
+const runElevated = (command: string, name: string = 'CS2 Server Monitor'): Promise<boolean> => {
+	return new Promise((resolve) => {
+		sudo.exec(command, { name }, (error) => {
+			if (error) {
+				console.error(error);
+				resolve(false);
+			} else {
+				resolve(true);
+			}
+		});
+	});
+};
+
+app.whenReady().then(async () => {
+	if (process.env.NODE_ENV === 'production') {
+		await installIpcLogger({ parent: mainWindow });
+	}
+
+	ipcMain.handle('fetch-app-details', async (_, appId: string) => {
+		const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`);
+		if (!response.ok) throw new Error(`Failed to fetch Store details for App ${appId}`);
+		return await response.json();
+	});
+
+	ipcMain.handle('fetch-steam-data', async (_, appId: string) => {
+		const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${appId}`);
+		if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${appId}`);
+		return await response.json();
+	});
+
+	ipcMain.handle('ping-server', async (_, ip: string) => {
+		try {
+			const result = await ping.promise.probe(ip, { timeout: 2 });
+			return (result.alive && typeof result.time === 'number') ? Math.round(result.time) : 9999;
+		} catch {
+			return 9999;
+		}
+	});
+
+	ipcMain.handle('check-admin', async () => {
+		return await checkAdmin();
+	});
+
+	ipcMain.handle('get-blocked-ips', async (_, appId: string) => {
+		const os = process.platform;
+		const ruleName = getRuleName(appId);
+
+		if (os === 'win32') {
+			// WINDOWS: Query the OS Firewall directly (No admin required for reading)
+			return new Promise((resolve) => {
+				const psCommand = `$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
+
+				exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout) => {
+					if (err || !stdout) return resolve([]);
+
+					const ips = stdout.split('\n')
+						.map(line => line.trim())
+						.filter(line => line.length > 0);
+
+					resolve(ips);
+				});
+			});
+		} else {
+			// MAC/LINUX: Read from the local state file to avoid sudo prompts on boot
+			const blockedIpsFilePath = getConfigFilePath(appId);
+			if (fs.existsSync(blockedIpsFilePath)) {
+				try {
+					const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
+					return JSON.parse(data);
+				} catch (e) {
+					console.error("Failed to parse blocked IPs JSON:", e);
+					return [];
+				}
+			}
+			return []; // Return empty array if file doesn't exist yet
+		}
+	});
+
+	ipcMain.handle('sync-firewall', async (_, ips: string[], elevate: boolean, appId: string) => {
+		const osName = process.platform;
+		const ruleName = getRuleName(appId);
+		let success = false;
+
+		// --- WINDOWS (win32) ---
+		if (osName === 'win32') {
+			const tempScriptFileName = path.join(os.tmpdir(), `cs2-fw-sync-${Date.now()}.ps1`);
+			const ipString = ips.map(ip => `'${ip}'`).join(',');
+			const psCommand = `
+				$ips = @(${ipString});
+				$rule = Get-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue;
+				if ($ips.Count -eq 0) { if ($rule) { Remove-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue } }
+				else {
+					if ($rule) {
+						Set-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -RemoteAddress $ips
+					} else {
+						New-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -Direction Outbound -Action Block -RemoteAddress $ips
+					}
+				}
+				Remove-Item -Path "${tempScriptFileName}" -Force
+			`;
+			fs.writeFileSync(tempScriptFileName, psCommand);
+
+			if (elevate) {
+				// On Windows, sudo-prompt works, or you can stick to your Start-Process Verb RunAs script
+				success = await runElevated(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`);
+			} else {
+				// Run normally...
+				success = await new Promise((resolve) => exec(
+					`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`,
+					(err) => resolve(!err)
+				));
+			}
+		}
+
+		// --- LINUX (linux) ---
+		else if (osName === 'linux') {
+			// Linux uses iptables. We flush our custom chain, then add the new IPs.
+			let bashCommand = `
+				iptables -F CS2_BLOCK 2>/dev/null || iptables -N CS2_BLOCK;
+				iptables -D OUTPUT -j CS2_BLOCK 2>/dev/null;
+				iptables -I OUTPUT -j CS2_BLOCK;
+			`;
+			ips.forEach(ip => {
+				bashCommand += `iptables -A CS2_BLOCK -d ${ip} -j DROP; `;
+			});
+
+			// Linux IPTables ALWAYS requires root
+			success = await runElevated(bashCommand);
+		}
+
+		// --- macOS (darwin) ---
+		else if (osName === 'darwin') {
+			// macOS uses PF (Packet Filter). We write the blocked IPs to an anchor file and reload it.
+			const ipString = ips.map(ip => `"${ip}"`).join(', ');
+			const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
+
+			const macCommand = `
+				echo '${anchorContent}' > /tmp/cs2_pf_rule;
+				pfctl -a com.cs2monitor -f /tmp/cs2_pf_rule;
+				pfctl -E;
+			`;
+
+			// Mac PF ALWAYS requires sudo
+			success = await runElevated(macCommand);
+		}
+
+		if (success) {
+			saveIpsLocally(ips, appId);
+		}
+
+		return success;
+	});
+
+	ipcMain.handle('relaunch-elevated', () => {
+		if (process.platform === 'win32') {
+			const exePath = process.execPath;
+			const args = [...process.argv.slice(1)];
+			const cwd = process.cwd();
+
+			if (process.env.VITE_DEV_SERVER_URL && !args.some(a => a.startsWith('--dev-server-url='))) {
+				args.push(`--dev-server-url=${process.env.VITE_DEV_SERVER_URL}`);
+			}
+			const psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : "''";
+
+			exec(`powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' -ArgumentList ${psArgs} -WorkingDirectory '${cwd}' -Verb RunAs"`);
+			app.quit();
+		} else {
+			// macOS/Linux: Do nothing, or log a warning. The UI shouldn't allow this to be clicked.
+			console.warn("Relaunching as root is not supported or recommended on POSIX systems.");
+		}
+	});
+
+	createWindow();
+});
+
+app.on('window-all-closed', () => {
+	if (process.platform !== 'darwin') app.quit();
+});

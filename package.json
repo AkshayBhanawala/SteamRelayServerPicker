@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev:web": "vite --mode web",
 		"dev:electron": "vite --mode electron",
-		"build": "vue-tsc && vite build && electron-builder",
+		"build": "vue-tsc && vite build --mode electron && electron-builder",
 		"preview": "vite preview"
 	},
 	"build": {
@@ -16,15 +16,28 @@
 		"directories": {
 			"output": "release"
 		},
+		"files": [
+			"dist/**/*",
+			"dist-electron/**/*"
+		],
 		"win": {
 			"target": [
-				"nsis",
 				"portable"
+			]
+		},
+		"mac": {
+			"target": [
+				"dmg"
+			]
+		},
+		"linux": {
+			"target": [
+				"AppImage"
 			]
 		}
 	},
 	"dependencies": {
-		"@tailwindcss/vite": "^4.3.2",
+		"@vscode/sudo-prompt": "^9.3.2",
 		"ping": "^1.0.0",
 		"vue": "^3.5.39"
 	},
@@ -33,15 +46,13 @@
 		"@types/ping": "^0.4.4",
 		"@vitejs/plugin-vue": "^6.0.7",
 		"@vue/tsconfig": "^0.9.1",
-		"autoprefixer": "^10.5.2",
 		"electron": "^43.1.0",
 		"electron-builder": "^26.15.3",
+		"electron-ipc-logger": "^1.2.1",
 		"eslint": "^10.7.0",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-vue": "^10.9.2",
-		"postcss": "^8.5.19",
 		"prettier": "3.9.5",
-		"tailwindcss": "^4.3.2",
 		"typescript": "~6.0.2",
 		"vite": "^8.1.1",
 		"vite-plugin-electron": "^1.1.0",
