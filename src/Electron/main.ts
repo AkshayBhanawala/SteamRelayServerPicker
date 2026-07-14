@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import ping from 'ping';
@@ -54,6 +54,8 @@ const createWindow = () => {
 
 	if (process.env.VITE_DEV_SERVER_URL) {
 		mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+	} else {
+		mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
 	}
 
 	if (!fs.existsSync(BASE_APP_DIRECTORY)) {
@@ -79,7 +81,7 @@ const runElevated = (command: string, name: string = 'CS2 Server Monitor'): Prom
 };
 
 app.whenReady().then(async () => {
-	if (process.env.NODE_ENV === 'production') {
+	if (process.env.NODE_ENV !== 'production') {
 		await installIpcLogger({ parent: mainWindow });
 	}
 
@@ -154,13 +156,13 @@ app.whenReady().then(async () => {
 			const ipString = ips.map(ip => `'${ip}'`).join(',');
 			const psCommand = `
 				$ips = @(${ipString});
-				$rule = Get-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue;
-				if ($ips.Count -eq 0) { if ($rule) { Remove-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue } }
+				$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
+				if ($ips.Count -eq 0) { if ($rule) { Remove-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue } }
 				else {
 					if ($rule) {
-						Set-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -RemoteAddress $ips
+						Set-NetFirewallRule -DisplayName '${ruleName}' -RemoteAddress $ips
 					} else {
-						New-NetFirewallRule -DisplayName '${BASE_FIREWALL_RULE_NAME}' -Direction Outbound -Action Block -RemoteAddress $ips
+						New-NetFirewallRule -DisplayName '${ruleName}' -Direction Outbound -Action Block -RemoteAddress $ips
 					}
 				}
 				Remove-Item -Path "${tempScriptFileName}" -Force

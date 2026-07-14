@@ -10,7 +10,7 @@ export default defineConfig((args) => {
 	const isElectron = args.mode === 'electron';
 
 	return {
-		base: '/',
+		base: './',
 		build: {
 			outDir: 'dist',
 			emptyOutDir: true,
