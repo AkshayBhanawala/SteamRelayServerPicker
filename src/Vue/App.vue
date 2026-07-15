@@ -6,12 +6,56 @@
 					<div v-if="gameMeta.image === '---INVALID---'" class="">
 						<h1 class="ping-bad">INVALID APP ID</h1>
 					</div>
-					<img v-else-if="gameMeta.image" :src="gameMeta.image" alt="Game Banner" class="banner-image" />
+					<img
+						v-else-if="gameMeta.image"
+						:src="gameMeta.image"
+						alt="Game Banner"
+						class="banner-image"
+					/>
 				</div>
 				<div class="game-info">
 					<h1 class="game-title">{{ gameMeta.title }}</h1>
 					<p class="game-description">{{ gameMeta.desc }}</p>
 				</div>
+			</div>
+
+			<div class="map-container">
+				<svg ref="mapSvg" viewBox="0 0 400 300" width="100%" height="100%">
+					<defs>
+						<filter id="glow" x="-150%" y="-150%" width="400%" height="400%">
+							<feGaussianBlur stdDeviation="1" result="blur" />
+							<feMerge>
+								<feMergeNode in="blur" />
+								<feMergeNode in="SourceGraphic" />
+							</feMerge>
+						</filter>
+					</defs>
+
+					<g :transform="zoomTransform">
+						<path
+							v-for="feature in geoFeatures"
+							:key="feature.id || Math.random()"
+							:d="pathGenerator(feature) || undefined"
+							class="map-country"
+							vector-effect="non-scaling-stroke"
+						/>
+
+						<circle
+							v-for="loc in locations.filter((l) => l.geo)"
+							:key="loc.id"
+							:cx="getProjectedX(loc)"
+							:cy="getProjectedY(loc)"
+							:r="(hoveredLoc?.id === loc.id ? 4 : 2) / zoomScaleNormalized"
+							:stroke-width="(hoveredLoc?.id === loc.id ? 1.5 : 1) / zoomScaleNormalized"
+							:fill="getPingColorHex(loc.avgPing)"
+							filter="url(#glow)"
+							class="map-dot"
+							@mouseenter="showMapTooltip(loc, $event)"
+							@mouseleave="hideMapTooltip"
+							@click="goToLocation(loc.id)"
+						/>
+					</g>
+				</svg>
 			</div>
 
 			<div class="status-footer">
@@ -119,8 +163,12 @@
 						v-else
 						v-for="loc in filteredLocations"
 						:key="loc.id"
+						:id="'loc-card-' + loc.id"
 						class="location-card"
-						:class="{ 'card-selected': isGroupSelected(loc) }"
+						:class="{
+							'card-selected': isGroupSelected(loc),
+							'card-highlighted': highlightedLocId === loc.id,
+						}"
 					>
 						<div
 							:class="{
@@ -303,6 +351,24 @@
 			</div>
 		</div>
 
+		<div
+			v-if="hoveredLoc"
+			class="map-tooltip"
+			:style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
+		>
+			<h4>{{ hoveredLoc.description }} ({{ hoveredLoc.id }})</h4>
+			<div class="tooltip-ips">
+				<div
+					v-for="relay in hoveredLoc.relays"
+					:key="relay.ipv4"
+					:style="{ color: getPingColorHex(relay.ping || 999) }"
+				>
+					<span v-if="relay.blocked">🔒 Blocked</span>
+					<span v-else>{{ relay.ipv4 }} - {{ relay.ping ? relay.ping + 'ms' : 'Measuring' }}</span>
+				</div>
+			</div>
+		</div>
+
 		<div v-if="adminModal.show" class="modal-overlay">
 			<div class="modal-content">
 				<h3>Admin Privileges Required</h3>
@@ -357,6 +423,10 @@
 	background: linear-gradient(to bottom, #0f172a, #020617);
 	box-sizing: border-box;
 }
+.left-panel,
+.left-panel * {
+	user-select: none !important;
+}
 
 .panel-content {
 	display: flex;
@@ -389,7 +459,7 @@
 	font-style: italic;
 	margin: 0 0 1rem 0;
 	background: linear-gradient(to right, #fb923c, #f59e0b);
-	-webkit-background-clip: text;
+	background-clip: text;
 	color: transparent;
 }
 .game-description {
@@ -397,6 +467,66 @@
 	line-height: 1.6;
 	font-size: 0.875rem;
 	margin: 0;
+}
+
+.map-container {
+	flex: 1; /* Takes up all remaining space above the footer */
+	width: 100%;
+	position: relative;
+	overflow: hidden;
+	border-top: 1px solid #1e293b;
+	border-bottom: 1px solid #1e293b;
+	background-color: #020617; /* Deep dark ocean */
+	cursor: grab;
+}
+.map-container:active {
+	cursor: grabbing;
+}
+.map-country {
+	fill: #000000;
+	stroke: #3f3f3f;
+	stroke-width: 1px;
+	transition: fill 0.2s;
+}
+
+.map-dot {
+	cursor: pointer;
+	stroke: rgba(255, 255, 255, 0.8);
+	/* stroke-width: 0.5px; */
+	transition: r 0.2s;
+}
+/*.map-dot:hover {
+	r: 4;
+}*/
+
+/* --- Global Fixed Tooltip --- */
+.map-tooltip {
+	position: fixed;
+	z-index: 9999;
+	background: rgba(2, 6, 23, 0.95);
+	border: 1px solid #334155;
+	border-radius: 0.5rem;
+	padding: 0.75rem;
+	pointer-events: none; /* Crucial so it doesn't block the mouse hover */
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+	backdrop-filter: blur(4px);
+	min-width: 200px;
+}
+.map-tooltip h4 {
+	margin: 0 0 0.5rem 0;
+	color: #f8fafc;
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	border-bottom: 1px solid #1e293b;
+	padding-bottom: 0.25rem;
+}
+.tooltip-ips {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	font-family: monospace;
+	font-size: 0.75rem;
 }
 
 .status-footer {
@@ -495,10 +625,10 @@
 	background-color: rgba(15, 23, 42, 0.4);
 	border-top: 1px solid var(--border-color);
 }
-.top-action-bar {
+/*.top-action-bar {
 }
 .bottom-action-bar {
-}
+}*/
 .action-group {
 	display: flex;
 	gap: 1rem;
@@ -671,6 +801,23 @@
 }
 .rotated {
 	transform: rotate(180deg);
+}
+.card-highlighted {
+  animation: mapHighlightPulse 1.5s ease-out;
+  border-color: #fb923c !important;
+}
+@keyframes mapHighlightPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.4);
+    background-color: rgba(251, 146, 60, 0.1);
+  }
+  70% {
+    box-shadow: 0 0 0 15px rgba(251, 146, 60, 0);
+    background-color: transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 146, 60, 0);
+  }
 }
 
 /* Drawer */
@@ -890,6 +1037,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
+import * as d3 from 'd3';
 
 // Constants
 const MAX_PING = 9999;
@@ -909,6 +1057,7 @@ interface ProcessedLocation {
 	relays: Relay[];
 	avgPing: number;
 	isExpanded: boolean;
+	geo?: [number, number];
 }
 
 declare global {
@@ -948,6 +1097,15 @@ const customAppId = ref<string>('');
 const activeAppId = computed(() =>
 	selectedGame.value === 'custom' ? customAppId.value : selectedGame.value,
 );
+// --- Map State Variables ---
+const geoFeatures = ref<any[]>([]);
+const mapSvg = ref<SVGElement | null>(null);
+const zoomTransform = ref<string>('');
+const zoomScale = ref<number>(1);
+const hoveredLoc = ref<ProcessedLocation | null>(null);
+const tooltipPos = ref({ x: 0, y: 0 });
+const zoomScaleNormalized = computed(() => Math.trunc(Math.log2(zoomScale.value)) || 1);
+const highlightedLocId = ref<string | null>(null);
 
 const filteredLocations = computed(() => {
 	if (!searchQuery.value)
@@ -1036,6 +1194,59 @@ watch(
 	{ immediate: true },
 );
 
+const fetchMapData = async () => {
+	try {
+		const res = await fetch(
+			'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson',
+		);
+		const data = await res.json();
+		geoFeatures.value = data.features;
+	} catch (e) {
+		console.error('Failed to load map geometry', e);
+	}
+};
+// Create a static Mercator projection that fits our 400x300 viewBox
+const projection = d3.geoMercator().scale(60).translate([200, 180]);
+const pathGenerator = d3.geoPath().projection(projection);
+
+const getProjectedX = (loc: ProcessedLocation) =>
+	loc.geo ? projection([loc.geo[0], loc.geo[1]])![0] : -100;
+const getProjectedY = (loc: ProcessedLocation) =>
+	loc.geo ? projection([loc.geo[0], loc.geo[1]])![1] : -100;
+
+const getPingColorHex = (ping: number) => {
+	if (ping === 999 || !ping) return '#ef4444'; // Red (Blocked / Testing)
+	if (ping <= 50) return '#10b981'; // Green
+	if (ping <= 100) return '#eab308'; // Yellow
+	if (ping <= 200) return '#f97316'; // Orange
+	return '#ef4444'; // Red
+};
+
+// Tooltip & Interactions
+const showMapTooltip = (loc: ProcessedLocation, event: MouseEvent) => {
+	hoveredLoc.value = loc;
+	tooltipPos.value = { x: event.clientX + 15, y: event.clientY + 15 };
+};
+
+const hideMapTooltip = () => {
+	hoveredLoc.value = null;
+};
+
+const goToLocation = (locId: string) => {
+	const el = document.getElementById(`loc-card-${locId}`);
+	if (el) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		(el.querySelector(`.location-toggle`) as any)?.click();
+	}
+
+	highlightedLocId.value = locId;
+	setTimeout(() => {
+		if (highlightedLocId.value === locId) {
+			highlightedLocId.value = null;
+		}
+	}, 1500);
+};
+
 const pingServer = async (ip: string): Promise<number> => {
 	try {
 		if (isElectron && window.electronAPI) {
@@ -1119,6 +1330,7 @@ const loadGameData = async () => {
 				})),
 				avgPing: 0,
 				isExpanded: false,
+				geo: value.geo,
 			}))
 			.filter((loc) => loc.relays.length > 0);
 
@@ -1182,6 +1394,20 @@ const getBlockedCount = (loc: ProcessedLocation) => {
 
 onMounted(async () => {
 	loadSettings();
+	fetchMapData();
+
+	// Connect D3 Zoom to our SVG element
+	if (mapSvg.value) {
+		const zoom = d3
+			.zoom<SVGElement, unknown>()
+			.scaleExtent([1, 8])
+			.on('zoom', (event: d3.D3ZoomEvent<SVGElement, unknown>) => {
+				zoomTransform.value = event.transform.toString();
+				zoomScale.value = event.transform.k || 1;
+			});
+		d3.select(mapSvg.value).call(zoom);
+	}
+
 	if (isElectron && window.electronAPI) {
 		isAdmin.value = await window.electronAPI.checkAdmin();
 		const pendingStr = localStorage.getItem(getPendingActionName());
