@@ -2,22 +2,23 @@ import { Configuration } from 'electron-builder';
 
 export const config: Configuration = {
 	appId: 'com.th3az.steam-server-relay-picker',
-	productName: 'Steam Relay Server Picker',
-	compression: 'maximum',
+	productName: 'SteamRelayServerPicker',
+	electronLanguages: ["en"],
+	compression: 'normal',
 	directories: {
 		output: 'release',
 	},
 	files: ['dist/**/*', 'public/**/*', 'dist-electron/**/*'],
 	win: {
-		target: ['portable'],
+		target: ['zip'],
 		icon: "public/icons/icon.ico",
 	},
 	mac: {
-		target: ['dmg'],
+		target: ['dmg', 'zip'],
 		icon: "public/icons/icon.icns",
 	},
 	linux: {
-		target: ['AppImage'],
+		target: ['AppImage', 'zip'],
 		icon: "public/icons/icon_256x256.png",
 	},
 };
