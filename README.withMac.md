@@ -42,8 +42,9 @@ To ensure server clusters and IPs are always accurate and up-to-date, this appli
 | --- | --- | --- |
 | **Windows** | Windows 10 / 11 (64-bit) | ✅ **Fully Tested & Supported (Tested on Win 11)** |
 | **Linux** | Ubuntu 20.04 or equivalent | ⚠️ **Untested / Unverified** |
+| **macOS** | macOS 10.15 (Catalina) or later | ⚠️ **Untested / Unverified** |
 
-*Note: While automated builds are generated for Linux, I've currently only tests the application on Windows 11. Linux builds are provided "as-is".*
+*Note: While automated builds are generated for macOS and Linux, the developer currently only tests the application on Windows 11. Mac and Linux builds are provided "as-is".*
 
 ---
 
@@ -67,46 +68,35 @@ You can download the latest compiled executables for your operating system from 
 ```
 3. Run the AppImage. *(See Platform Limitations below).*
 
+### 🍎 macOS (Diagnostic Mode Only)
+
+1. Download the `SteamRelayServerPicker-1.0.0.dmg` file and drag the app to your Applications folder.
+2. **Apple Gatekeeper Bypass:** Because this app is currently unsigned, macOS will likely tell you the app is "damaged." This is standard for indie open-source apps. To fix this, open your Terminal and run:
+
+```bash
+   xattr -cr /Applications/SteamRelayServerPicker.app
+```
+3. Open the app. *(See Platform Limitations below).*
+
 ---
 
 ## ⚠️ Platform Limitations: Why Windows Gets "Admin" Controls
 
-If you are using **Linux**, you will notice the app boots into a restricted **"Diagnostic Mode"** where the Firewall blocking features are disabled.
+If you are using **macOS** or **Linux**, you will notice the app boots into a restricted **"Diagnostic Mode"** where the Firewall blocking features are disabled.
 
-**Why did I do this?**
+**Why did we do this?**
 On Windows, controlling network traffic programmatically is heavily standardized. The app can safely request UAC (User Account Control) Administrator elevation and inject clean, temporary routing rules into the Windows Defender Firewall via the native `netsh` command.
 
-On Linux, managing the firewall programmatically is significantly more destructive, permanent, and fragmented:
+On macOS and Linux, managing the firewall programmatically is significantly more destructive, permanent, and fragmented:
 
+* **macOS** uses `pf` (Packet Filter), which requires modifying root-level configuration files that can easily break a user's entire network stack if handled improperly.
 * **Linux** distributions are fragmented across `iptables`, `ufw`, `firewalld`, and `nftables`. Writing a universal, fail-safe script that requires `sudo` privileges across every Linux distro is highly unstable and dangerous.
 
-Rather than risk permanently damaging your operating system's network configuration, the Linux builds are gracefully limited to **Diagnostic Mode**. You can still use the beautiful 3D globe to measure and visualize your real-time latencies to global Steam servers, but automated IP blocking is exclusively available on Windows.
+Rather than risk permanently damaging your operating system's network configuration, the macOS and Linux builds are gracefully limited to **Diagnostic Mode**. You can still use the beautiful 3D globe to measure and visualize your real-time latencies to global Steam servers, but automated IP blocking is exclusively available on Windows.
 
 ---
 
 ## 📸 Screenshots
-
-<p align="center">
-<img src="./public/images/01. App - Downloaded Files.png" alt="App - Downloaded Files" />
-</p>
-<p align="center">
-<img src="./public/images/02. App - Dashboard - Basic.png" alt="App - Dashboard - Basic" />
-</p>
-<p align="center">
-<img src="./public/images/03. App - Dashboard - Map Dot Hover.png" alt="App - Dashboard - Map Dot Hover" />
-</p>
-<p align="center">
-<img src="./public/images/04. App - Dashboard - Location Filter.png" alt="App - Dashboard - Location Filter" />
-</p>
-<p align="center">
-<img src="./public/images/05. App - Apply Rule from Non Admin Window.png" alt="App - Apply Rule from Non Admin Window" />
-</p>
-<p align="center">
-<img src="./public/images/06. App - Dashboard with Blocked Location.png" alt="App - Dashboard with Blocked Location" />
-</p>
-<p align="center">
-<img src="./public/images/07. App - Settings.png" alt="App - Settings" />
-</p>
 
 ---
 
