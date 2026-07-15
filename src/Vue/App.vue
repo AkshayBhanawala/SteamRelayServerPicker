@@ -307,13 +307,13 @@ import { useDebounceFn } from '@vueuse/core';
 import GlobeMap from './components/GlobeMap.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import AdminModal from './components/AdminModal.vue';
-import { BASE_APP_FILE_PREFIX, isMaxPing, MAX_PING } from './util/Common.util';
+import { BASE_APP_FILE_PREFIX, isMaxPing, MAX_PING } from './utils/Common.util';
 import type { ProcessedLocation } from '../types';
 import {
 	GET_MOCK_GAME_META_DATA,
 	GET_MOCK_SDR_DATA,
 	GET_RANDOM_PING,
-} from './util/MockData.util';
+} from './utils/MockData.util';
 
 // --- Environment Flags ---
 const appVersion = import.meta.env.APP_VERSION;
