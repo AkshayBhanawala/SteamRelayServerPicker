@@ -80,17 +80,5 @@ jobs:
       - name: Build Electron App
         # Mac sometimes requires targeting the specific architecture
         run: npm run build:electron
-
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            release/*.exe
-            release/*.AppImage
-            release/*.snap
-            release/*.dmg
-            release/*.zip
-            release/*.pkg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
