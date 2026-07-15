@@ -182,7 +182,7 @@
 												? isMaxPing(loc.avgPing)
 													? `Timeout`
 													: `${loc.avgPing} ms`
-												: 'Testing...'
+												: 'Measuring...'
 										}}
 									</span>
 								</template>
@@ -297,6 +297,7 @@ import { useDebounceFn } from '@vueuse/core';
 import GlobeMap from './components/GlobeMap.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import AdminModal from './components/AdminModal.vue';
+import { isMaxPing } from './util/common.util.ts';
 import type { ProcessedLocation } from '../types';
 
 // Constants
@@ -366,7 +367,6 @@ const isLocationSomeIpsBlocked = computed(
 	() => (loc: ProcessedLocation) =>
 		isElectron && getBlockedCount(loc) > 0 && getBlockedCount(loc) < loc.relays.length,
 );
-const isMaxPing = computed(() => (ping: number) => ping === MAX_PING);
 
 // --- Core API & Logic ---
 let fetchTimeout: number | null = null;
@@ -1067,6 +1067,9 @@ onMounted(async () => {
 }
 
 .ping-badge {
+	display: flex;
+	justify-content: center;
+	align-items: center;
 	font-family: monospace;
 	font-size: 0.75rem;
 	padding: 4px 8px;

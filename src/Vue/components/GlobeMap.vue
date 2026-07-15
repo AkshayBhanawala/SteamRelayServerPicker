@@ -10,6 +10,7 @@
 			@mouseleave="handleMapMouseLeave"
 			@click="handleMapClick"
 		></canvas>
+
 		<div
 			v-if="hoveredLoc"
 			class="map-tooltip"
@@ -20,11 +21,15 @@
 				<div
 					v-for="relay in hoveredLoc.relays"
 					:key="relay.ipv4"
-					:style="{ color: getPingColorHex(relay.ping || 999) }"
+					:style="{ color: getPingColorHex(relay.ping || 9999) }"
 				>
 					<span>{{ relay.ipv4 }}</span>
 					<span v-if="relay.blocked">🔒 Blocked</span>
-					<span v-else>{{ relay.ping ? relay.ping + 'ms' : 'Measuring' }}</span>
+					<span v-else>
+						{{
+							relay.ping ? (isMaxPing(relay.ping) ? `Timeout` : `${relay.ping} ms`) : 'Measuring...'
+						}}
+					</span>
 				</div>
 			</div>
 		</div>
@@ -34,6 +39,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import * as d3 from 'd3';
+import { isMaxPing } from '../util/common.util.ts';
 import type { ProcessedLocation } from '../../types';
 
 const props = defineProps<{
@@ -65,12 +71,9 @@ const mapContainerWrapper = ref<HTMLElement | null>(null);
 
 let width = 800;
 let height = 600;
-const initialScale = 260;
-const projection = d3
-	.geoOrthographic()
-	.scale(initialScale)
-	.translate([width / 2, height / 2]);
-const pathGenerator = d3.geoPath().projection(projection);
+let initialScale: number = 0;
+let projection: d3.GeoProjection;
+let pathGenerator: d3.GeoPath<any, d3.GeoPermissibleObjects>;
 
 const fetchMapData = async () => {
 	try {
@@ -132,7 +135,7 @@ const drawMap = () => {
 	ctx.lineWidth = 2;
 	ctx.stroke();
 
-	// 3. Draw Countries (VUE PROXY BYPASS)
+	// 3. Draw Countries
 	ctx.beginPath();
 	const rawGeo = toRaw(geoFeatures.value);
 	rawGeo.forEach((f) => pathGenerator(f));
@@ -143,10 +146,23 @@ const drawMap = () => {
 	ctx.lineWidth = 1;
 	ctx.stroke();
 
+	// 3.5 Draw Inner Vignette (3D Sphere Depth)
+	const vignette = ctx.createRadialGradient(
+		cx, cy, currentRadius * 0.1, // Start fading near the middle
+		cx, cy, currentRadius * 1.02 // End exactly at the globe edge
+	);
+	vignette.addColorStop(0, 'rgba(2, 6, 23, 0)'); // Transparent core
+	vignette.addColorStop(1, 'rgba(2, 6, 23, 0.9)'); // Dark edges matching background
+
+	ctx.beginPath();
+	ctx.arc(cx, cy, currentRadius, 0, 2 * Math.PI);
+	ctx.fillStyle = vignette;
+	ctx.fill();
+
 	const center = projection.invert!([cx, cy]);
 	if (!center) return;
 
-	// 4. Draw Server Nodes (VUE PROXY BYPASS)
+	// 4. Draw Server Nodes
 	const rawLocations = toRaw(props.locations);
 
 	rawLocations.forEach((loc) => {
@@ -154,14 +170,32 @@ const drawMap = () => {
 		const lat = loc.geo[1];
 		const lon = loc.geo[0];
 
-		if (d3.geoDistance([lon, lat], center) > Math.PI / 2) return;
+		// Calculate the exact distance from the center of our view
+		const distance = d3.geoDistance([lon, lat], center);
+		// The absolute horizon is exactly 90 degrees (Math.PI / 2)
+		const horizon = Math.PI / 2;
+		if (distance > horizon) return;
 
 		const proj = projection([lon, lat]);
 		if (!proj) return;
 
+		// --- Graceful Fade Math ---
+		// Start fading the dot when it is about 17 degrees away from the edge
+		const fadeThreshold = horizon - 0.3;
+		let dotOpacity = 1;
+		if (distance > fadeThreshold) {
+			// Calculate a value between 1.0 (fully visible) and 0.0 (invisible)
+			dotOpacity = Math.max(0, 1 - (distance - fadeThreshold) / (horizon - fadeThreshold));
+		}
+
 		const isHovered = hoveredLoc.value?.id === loc.id;
-		const radius = isHovered ? 10 : 5;
+		// Base radius scaled by zoom, and slightly shrunk as it curves away for forced perspective
+		const baseRadius = (isHovered ? 10 : 5) / Math.pow(currentZoom, 0.3);
+		const radius = baseRadius * (0.6 + 0.4 * dotOpacity);
 		const baseColor = getPingColorHex(loc.avgPing);
+
+		// Opacity
+		ctx.globalAlpha = dotOpacity;
 
 		// Glow
 		ctx.beginPath();
@@ -179,6 +213,9 @@ const drawMap = () => {
 		ctx.strokeStyle = '#FFFFFF';
 		ctx.lineWidth = 1;
 		ctx.stroke();
+
+		// Reset alpha for the next dot
+		ctx.globalAlpha = 1.0;
 	});
 
 	ctx.globalCompositeOperation = 'source-over';
@@ -281,6 +318,15 @@ const handleResize = (entries: ResizeObserverEntry[]) => {
 
 const setupMap = () => {
 	if (mapCanvas.value) {
+		const mapWrapperWidth = mapCanvas.value.parentElement?.clientWidth || 800;
+		const mapWrapperHeight = mapCanvas.value.parentElement?.clientHeight || 600;
+		initialScale = Math.min(mapWrapperWidth, mapWrapperHeight) * 0.4;
+		projection = d3
+			.geoOrthographic()
+			.scale(initialScale)
+			.translate([width / 2, height / 2]);
+		pathGenerator = d3.geoPath().projection(projection);
+
 		// Setup dynamic resizer
 		if (mapContainerWrapper.value) {
 			resizeObserver = new ResizeObserver(handleResize);
@@ -309,8 +355,8 @@ const setupMap = () => {
 						if (geoPos && event.transform.k > currentZoom) {
 							const targetLon = -geoPos[0];
 							const targetLat = -geoPos[1];
-							targetRotation[0] += (targetLon - targetRotation[0]) * 0.2;
-							targetRotation[1] += (targetLat - targetRotation[1]) * 0.2;
+							targetRotation[0] += (targetLon - targetRotation[0]) * 0.8;
+							targetRotation[1] += (targetLat - targetRotation[1]) * 0.8;
 						}
 					} else {
 						const dx = event.transform.x - lastX;
@@ -345,7 +391,7 @@ const setupMap = () => {
 		isAnimating = true;
 		d3.timer(() => {
 			if (!isDragging.value) {
-				targetRotation[0] += 0.05 / currentZoom;
+				targetRotation[0] += 0.02 / currentZoom;
 			}
 			currentZoom += (targetZoom - currentZoom) * 0.15;
 			projection.scale(initialScale * currentZoom);
