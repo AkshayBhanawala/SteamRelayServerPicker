@@ -46,7 +46,7 @@ onUnmounted(() => {
 	overflow: hidden;
 }
 .fps-value {
-	font-family: 'Courier New', Courier, monospace;
+	font-family: var(--mono);
 	font-weight: 900;
 	margin: 0;
 	line-height: 0;

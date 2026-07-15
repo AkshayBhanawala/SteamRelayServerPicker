@@ -4,7 +4,8 @@
 	"author": {
 		"name": "Akshay 'TH3-AZ' Bhanawala",
 		"email": "AkshayBhanawala@gmail.com",
-		"url": "https://akshaybhanawala.github.io"
+		"url": "https://AkshayBhanawala.github.io",
+		"gh-release-page": "https://github.com/AkshayBhanawala/SteamRelayServerPicker/releases/"
 	},
 	"private": true,
 	"version": "1.0.0",
@@ -15,6 +16,11 @@
 		"dev:electron": "vite --mode electron",
 		"build:web": "vue-tsc && vite build",
 		"build:electron": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts",
+		"build:electron:win": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --win",
+		"build:electron:linux": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --linux",
+		"build:electron:mac": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --mac",
+		"build:electron:all": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --win --linux",
+		"deploy:web": "npx http-server ./dist --port 5174",
 		"preview": "vite preview"
 	},
 	"dependencies": {
@@ -37,6 +43,7 @@
 		"eslint": "^10.7.0",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-vue": "^10.9.2",
+		"http-server": "^14.1.1",
 		"prettier": "3.9.5",
 		"typescript": "~6.0.2",
 		"vite": "^8.1.1",

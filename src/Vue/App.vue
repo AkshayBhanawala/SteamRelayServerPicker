@@ -36,15 +36,25 @@
 							: 'Web Diagnostic Mode'
 					}}
 				</span>
+				<span class="app-version">
+					<span>Current Version:</span>
+					<a :href="appGhReleasePage" target="_new" title="Check Latest Releases">
+						v{{ appVersion }}
+					</a>
+				</span>
 			</div>
 		</div>
 
 		<div class="right-panel">
 			<div v-show="!isSettingsOpen" class="view-container">
 				<div class="panel-header text-left">
+					<h2 v-if="isStaticDemo" class="demo-badge">⚠️ WEB DEMO - MOCK DATA ⚠️</h2>
+
 					<div class="header-text">
 						<h2>Relay Configuration</h2>
-						<p v-if="!isElectron" class="warning-text">Management requires the Windows Client.</p>
+						<p v-if="!isElectron" class="warning-text">
+							Management requires the Desktop application.
+						</p>
 					</div>
 
 					<div class="header-actions">
@@ -297,16 +307,25 @@ import { useDebounceFn } from '@vueuse/core';
 import GlobeMap from './components/GlobeMap.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import AdminModal from './components/AdminModal.vue';
-import { isMaxPing } from './util/common.util.ts';
+import { BASE_APP_FILE_PREFIX, isMaxPing, MAX_PING } from './util/Common.util.ts';
 import type { ProcessedLocation } from '../types';
+import {
+	GET_MOCK_GAME_META_DATA,
+	GET_MOCK_SDR_DATA,
+	GET_RANDOM_PING,
+} from './util/MockData.util.ts';
+
+// --- Environment Flags ---
+const appVersion = import.meta.env.APP_VERSION;
+const appGhReleasePage = import.meta.env.APP_GH_RELEASE_PAGE;
+const isElectron = 'electronAPI' in window;
+const isDev = import.meta.env.DEV;
+const isStaticDemo = !isElectron && !isDev;
 
 // Constants
-const MAX_PING = 9999;
-const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker`;
-const getPendingActionName = () => `${BASE_FIREWALL_RULE_NAME}--PendingFwAction`;
+const getPendingActionName = () => `${BASE_APP_FILE_PREFIX}--PendingFwAction`;
 
 // --- Application State ---
-const isElectron = 'electronAPI' in window;
 const currentView = ref<'dashboard' | 'settings'>('dashboard');
 const gameMeta = ref({
 	title: 'Loading...',
@@ -376,7 +395,9 @@ const fetchGameMeta = async (appId: string) => {
 
 	try {
 		let data;
-		if (isElectron && window.electronAPI) {
+		if (isStaticDemo) {
+			data = await GET_MOCK_GAME_META_DATA(appId);
+		} else if (isElectron && window.electronAPI) {
 			data = await window.electronAPI.getAppDetails(appId);
 		} else {
 			const res = await fetch(`/api-store/api/appdetails?appids=${appId}`);
@@ -412,7 +433,12 @@ watch(
 
 const pingServer = async (ip: string): Promise<number> => {
 	try {
-		if (isElectron && window.electronAPI) return await window.electronAPI.ping(ip);
+		if (isStaticDemo) {
+			return GET_RANDOM_PING();
+		}
+		if (isElectron && window.electronAPI) {
+			return await window.electronAPI.ping(ip);
+		}
 		const response = await fetch(`/api-ping?ip=${ip}`);
 		const data = await response.json();
 		return data.alive && typeof data.time === 'number' ? Math.round(data.time) : MAX_PING;
@@ -462,7 +488,9 @@ const loadGameData = async () => {
 		errorMessage.value = null;
 
 		let data;
-		if (isElectron && window.electronAPI) {
+		if (isStaticDemo) {
+			data = await GET_MOCK_SDR_DATA();
+		} else if (isElectron && window.electronAPI) {
 			data = await window.electronAPI.getSteamSDR(activeAppId.value);
 		} else {
 			const response = await fetch(
@@ -694,24 +722,26 @@ onMounted(async () => {
 	width: 100%;
 }
 .panel-header {
-  padding: 1rem;
-  background-color: rgba(2, 6, 23, 0.95);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
-  z-index: 10;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 20px;
+	padding: 1rem;
+	background-color: rgba(2, 6, 23, 0.95);
+	border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+	z-index: 10;
 }
 .header-text h2 {
-  font-size: 1.25rem;
-  margin: 0;
-  margin-bottom: 0.5rem;
-  font-weight: 700;
-  text-align: left;
+	font-size: 1.25rem;
+	margin: 0;
+	margin-bottom: 0.5rem;
+	font-weight: 700;
+	text-align: left;
 }
 .header-text p {
-  margin: 0;
-  text-align: left;
+	margin: 0;
+	text-align: left;
 }
 .btn {
 	padding: 0.5rem 1rem;
@@ -796,6 +826,24 @@ onMounted(async () => {
 	max-height: 25vh;
 }
 
+.demo-badge {
+	display: block;
+	width: 100%;
+	margin: 0;
+	padding: 10px;
+	text-align: center;
+	background-color: rgba(239, 68, 68, 0.1);
+	color: #f87171;
+	border: 1px solid rgba(239, 68, 68, 0.4);
+	border-radius: 6px;
+}
+
+.dev-badge {
+	background-color: rgba(56, 189, 248, 0.1);
+	color: #38bdf8;
+	border-color: rgba(56, 189, 248, 0.4);
+}
+
 .banner-wrapper {
 	overflow: hidden;
 }
@@ -820,9 +868,13 @@ onMounted(async () => {
 }
 
 .status-footer {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 20px;
 	padding-top: 1rem;
 	border-top: 1px solid #0f172a;
-	font-size: 0.75rem;
+	font-size: 1vw;
 	color: #64748b;
 }
 .status-indicator {
@@ -839,6 +891,18 @@ onMounted(async () => {
 }
 .pulse-dot-admin {
 	background-color: #10b981;
+}
+.app-version {
+	display: flex;
+	justify-content: center;
+	align-items: baseline;
+	gap: 0.5rem;
+}
+/*.app-version span {}*/
+.app-version a {
+	font-family: var(--mono);
+	text-decoration: none;
+	color: #10b981;
 }
 
 .right-panel {
@@ -990,7 +1054,7 @@ onMounted(async () => {
 	justify-content: center;
 	align-items: center;
 	height: 100%;
-	font-family: monospace;
+	font-family: var(--mono);
 	font-size: 0.75rem;
 	font-weight: bold;
 	background: #020617;
@@ -1058,7 +1122,7 @@ onMounted(async () => {
 	gap: 1rem;
 }
 .relay-ip {
-	font-family: monospace;
+	font-family: var(--mono);
 	font-size: 0.875rem;
 }
 .text-blocked {
@@ -1070,7 +1134,7 @@ onMounted(async () => {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	font-family: monospace;
+	font-family: var(--mono);
 	font-size: 0.75rem;
 	padding: 4px 8px;
 	border-radius: 4px;

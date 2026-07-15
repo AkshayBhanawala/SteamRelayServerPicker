@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import * as d3 from 'd3';
-import { isMaxPing } from '../util/common.util.ts';
+import { isMaxPing } from '../util/Common.util.ts';
 import type { ProcessedLocation } from '../../types';
 
 const props = defineProps<{
@@ -463,7 +463,7 @@ onBeforeUnmount(() => {
 	display: flex;
 	flex-direction: column;
 	gap: 0.25rem;
-	font-family: monospace;
+	font-family: var(--mono);
 	font-size: 0.75rem;
 }
 .tooltip-ips > div {

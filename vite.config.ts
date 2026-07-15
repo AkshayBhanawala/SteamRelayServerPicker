@@ -3,6 +3,7 @@ import electron from 'vite-plugin-electron/simple';
 import vue from '@vitejs/plugin-vue';
 import ping from 'ping';
 import url from 'url';
+import packageJson from './package.json' with { type: "json" };
 
 export default defineConfig((args) => {
 	console.log(`vite.defineConfig().args:`, args);
@@ -15,6 +16,10 @@ export default defineConfig((args) => {
 			outDir: 'dist',
 			emptyOutDir: true,
 			sourcemap: false,
+		},
+		define: {
+			'import.meta.env.APP_VERSION': JSON.stringify(packageJson.version),
+			'import.meta.env.APP_GH_RELEASE_PAGE': JSON.stringify((packageJson.author as any)['gh-release-page']),
 		},
 		plugins: [
 			vue(),
