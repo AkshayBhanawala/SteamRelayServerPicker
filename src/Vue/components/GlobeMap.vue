@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import * as d3 from 'd3';
-import { isMaxPing } from '../util/Common.util.ts';
+import { isMaxPing } from '../util/Common.util';
 import type { ProcessedLocation } from '../../types';
 
 const props = defineProps<{
