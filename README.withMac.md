@@ -168,12 +168,13 @@ npm run build:electron
 # Build the Web-Only Static Demo (outputs to dist/ folder)
 npm run build:web
 ```
-
 ---
 
-## ⚖️ Disclaimers & License
+## ⚖️ Disclaimers & Privacy Policy
 
-**Branding Disclaimer:** The icon used in this application is derived from the official Steam application branding. This tool is a community-driven project and is **not affiliated with, endorsed by, or sponsored by Valve Corporation.** Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation in the U.S. and/or other countries.
+**Branding Disclaimer:** The icon used in this application is derived from the official Steam application branding. This tool is a personal project inspired by other community projects and ideas, and is **not affiliated with, endorsed by, or sponsored by Valve Corporation.** Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation in the U.S. and/or other countries.
+
+**Privacy Policy:** This application **does not collect any kind of data from the user, or execute any remote code on the system.** Read the entire privacy policy [HERE](https://akshaybhanawala.github.io/SteamRelayServerPicker/PrivacyPolicy.html).
 
 ---
 
