@@ -60,7 +60,8 @@ jobs:
     strategy:
       matrix:
         # Added macos-latest here!
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -91,4 +92,5 @@ jobs:
             release/*.zip
             release/*.pkg
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
