@@ -15,49 +15,20 @@
 				</div>
 				<div class="game-info">
 					<h1 class="game-title">{{ gameMeta.title }}</h1>
-					<p class="game-description">{{ gameMeta.desc }}</p>
+					<!-- <p class="game-description">{{ gameMeta.desc }}</p> -->
 				</div>
 			</div>
 
-			<div class="map-container">
-				<svg ref="mapSvg" viewBox="0 0 400 300" width="100%" height="100%">
-					<defs>
-						<filter id="glow" x="-150%" y="-150%" width="400%" height="400%">
-							<feGaussianBlur stdDeviation="1" result="blur" />
-							<feMerge>
-								<feMergeNode in="blur" />
-								<feMergeNode in="SourceGraphic" />
-							</feMerge>
-						</filter>
-					</defs>
-
-					<!-- Holographic Ocean Sphere -->
-					<path :d="spherePath" class="map-ocean" />
-
-					<!-- Draw Countries -->
-					<path
-						v-for="feature in projectedFeatures"
-						:key="feature.id || Math.random()"
-						:d="feature.d"
-						class="map-country"
-					/>
-
-					<!-- Draw Server Nodes (Visible Front Half Only) -->
-					<circle
-						v-for="loc in visibleLocations"
-						:key="loc.id"
-						:cx="loc.cx"
-						:cy="loc.cy"
-						:r="(hoveredLoc?.id === loc.id ? 4 : 2) / zoomScaleNormalized"
-						:stroke-width="(hoveredLoc?.id === loc.id ? 1.5 : 1) / zoomScaleNormalized"
-						:fill="getPingColorHex(loc.avgPing)"
-						filter="url(#glow)"
-						class="map-dot"
-						@mouseenter="showMapTooltip(loc.raw, $event)"
-						@mouseleave="hideMapTooltip"
-						@click="goToLocation(loc.id)"
-					/>
-				</svg>
+			<div class="map-container" v-show="!isSettingsOpen">
+				<canvas
+					ref="mapCanvas"
+					width="800"
+					height="600"
+					class="map-canvas"
+					@mousemove="handleMapMouseMove"
+					@mouseleave="handleMapMouseLeave"
+					@click="handleMapClick"
+				></canvas>
 			</div>
 
 			<div class="status-footer">
@@ -312,7 +283,7 @@
 				</div>
 			</div>
 
-			<div v-if="currentView === 'settings'" class="view-container settings-view">
+			<div v-if="isSettingsOpen" class="view-container settings-view">
 				<div class="panel-header text-left">
 					<div class="header-text">
 						<h2>Application Settings</h2>
@@ -365,8 +336,9 @@
 					:key="relay.ipv4"
 					:style="{ color: getPingColorHex(relay.ping || 999) }"
 				>
+					<span>{{ relay.ipv4 }}</span>
 					<span v-if="relay.blocked">🔒 Blocked</span>
-					<span v-else>{{ relay.ipv4 }} - {{ relay.ping ? relay.ping + 'ms' : 'Measuring' }}</span>
+					<span v-else>{{ relay.ping ? relay.ping + 'ms' : 'Measuring' }}</span>
 				</div>
 			</div>
 		</div>
@@ -472,7 +444,10 @@
 }
 
 .map-container {
-	flex: 1; /* Takes up all remaining space above the footer */
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	width: 100%;
 	position: relative;
 	overflow: hidden;
@@ -484,22 +459,16 @@
 .map-container:active {
 	cursor: grabbing;
 }
-.map-country {
-	fill: #000000;
-	stroke: #3f3f3f;
-	stroke-width: 1px;
-	transition: fill 0.2s;
+.map-canvas {
+	display: block;
+	max-width: 100%;
+	max-height: 100%;
+	cursor: grab;
+	user-select: none;
 }
-
-.map-dot {
-	cursor: pointer;
-	stroke: rgba(255, 255, 255, 0.8);
-	/* stroke-width: 0.5px; */
-	transition: r 0.2s;
+.map-canvas:active {
+	cursor: grabbing;
 }
-/*.map-dot:hover {
-	r: 4;
-}*/
 
 /* --- Global Fixed Tooltip --- */
 .map-tooltip {
@@ -529,6 +498,11 @@
 	gap: 0.25rem;
 	font-family: monospace;
 	font-size: 0.75rem;
+}
+.tooltip-ips > div {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
 }
 
 .status-footer {
@@ -572,6 +546,7 @@
 .header-text h2 {
 	font-size: 1.25rem;
 	margin: 0;
+	margin-bottom: 0.5rem;
 	font-weight: 700;
 }
 .warning-text {
@@ -1101,19 +1076,18 @@ const activeAppId = computed(() =>
 );
 // --- Map State Variables ---
 const geoFeatures = ref<any[]>([]);
-const mapSvg = ref<SVGElement | null>(null);
-const zoomScale = ref<number>(1);
+const mapCanvas = ref<HTMLCanvasElement | null>(null);
 const hoveredLoc = ref<ProcessedLocation | null>(null);
 const tooltipPos = ref({ x: 0, y: 0 });
-const zoomScaleNormalized = computed(() => {
-	return Math.trunc(Math.log2(zoomScale.value)) || 1;
-	return Math.sqrt(zoomScale.value);
-});
+const zoomScale = ref<number>(1);
+const targetZoom = ref<number>(1);
+const currentZoom = ref<number>(1);
+const targetRotation = ref<[number, number]>([0, 0]);
+const currentRotation = ref<[number, number]>([0, 0]);
 const highlightedLocId = ref<string | null>(null);
-const rotation = ref<[number, number]>([0, 0]); // Yaw, Pitch
 const isDragging = ref(false);
-const trigger = ref(0); // Forces Vue to react to 60fps D3 changes
 
+const isSettingsOpen = computed(() => currentView.value === 'settings');
 const filteredLocations = computed(() => {
 	if (!searchQuery.value)
 		return locations.value.filter((loc) => [`bom2`, `maa2`, `sgp`, `mad`, `ctut`].includes(loc.id));
@@ -1201,8 +1175,13 @@ watch(
 	{ immediate: true },
 );
 
-const initialScale = 130;
-const projection = d3.geoOrthographic().scale(initialScale).translate([200, 150]);
+const width = 800;
+const height = 600;
+const initialScale = 260;
+const projection = d3
+	.geoOrthographic()
+	.scale(initialScale)
+	.translate([width / 2, height / 2]);
 const pathGenerator = d3.geoPath().projection(projection);
 const fetchMapData = async () => {
 	try {
@@ -1215,36 +1194,144 @@ const fetchMapData = async () => {
 		console.error('Failed to load map geometry', e);
 	}
 };
-const spherePath = computed(() => {
-	trigger.value;
-	return pathGenerator({ type: 'Sphere' } as d3.GeoPermissibleObjects) || '';
-});
-const projectedFeatures = computed(() => {
-	trigger.value;
-	return geoFeatures.value.map((f) => ({ ...f, d: pathGenerator(f) }));
-});
-const visibleLocations = computed(() => {
-	trigger.value;
-	const center = projection.invert!([200, 150]);
-	if (!center) return [];
+const drawMap = () => {
+	const canvas = mapCanvas.value;
+	if (!canvas) return;
+	if (canvas.clientWidth === 0) return;
 
-	return locations.value
-		.filter((loc) => loc.geo)
-		.map((loc) => {
-			const lon = loc.geo![0];
-			const lat = loc.geo![1];
+	const ctx = canvas.getContext('2d');
+	if (!ctx) return;
 
-			// If the distance to the center is > 90 degrees, it's on the back of the globe!
-			const dist = d3.geoDistance([lon, lat], center);
-			if (dist > Math.PI / 2) return null;
+	// Update cursor to pointer if hovering over a dot
+	if (hoveredLoc.value) {
+		canvas.style.cursor = 'pointer';
+	} else {
+		canvas.style.cursor = ''; // Fallback to CSS grab/grabbing
+	}
 
+	// Bind D3 path generator to our canvas
+	pathGenerator.context(ctx);
+	ctx.clearRect(0, 0, width, height);
+
+	// 1. Draw Holographic Ocean
+	ctx.beginPath();
+	pathGenerator({ type: 'Sphere' } as d3.GeoPermissibleObjects);
+	ctx.fillStyle = '#48cae466';
+	ctx.fill();
+	ctx.strokeStyle = '#7400b8';
+	ctx.lineWidth = 2;
+	ctx.stroke();
+
+	// Add atmospheric outer glow
+	ctx.shadowBlur = 40;
+	ctx.shadowColor = '#48cae4';
+	ctx.strokeStyle = '#02c39a';
+	ctx.lineWidth = 2;
+	ctx.stroke();
+	ctx.stroke();
+	ctx.stroke();
+	ctx.stroke();
+	// Reset shadow so it doesn't bleed into the countries
+	ctx.shadowBlur = 0;
+
+	// 2. Draw Countries
+	ctx.beginPath();
+	geoFeatures.value.forEach((f) => pathGenerator(f));
+	ctx.fillStyle = '#020617';
+	ctx.fill();
+	ctx.strokeStyle = '#1e293b';
+	ctx.lineWidth = 1;
+	ctx.stroke();
+
+	// 3. Draw Server Nodes (Front Half Only)
+	const center = projection.invert!([width / 2, height / 2]);
+	if (!center) return;
+
+	locations.value.forEach((loc) => {
+		if (!loc.geo) return;
+		const lat = loc.geo[1];
+		const lon = loc.geo[0];
+
+		// Hide if on the back of the globe
+		if (d3.geoDistance([lon, lat], center) > Math.PI / 2) return;
+
+		const proj = projection([lon, lat]);
+		if (!proj) return;
+
+		const isHovered = hoveredLoc.value?.id === loc.id;
+		// Scale node size based on zoom (doubled for retina canvas)
+		const radius = isHovered ? 10 : 5;
+
+		ctx.beginPath();
+		ctx.arc(proj[0], proj[1], radius, 0, 2 * Math.PI);
+		ctx.fillStyle = getPingColorHex(loc.avgPing);
+
+		// Canvas Glow Effect
+		ctx.shadowBlur = 15;
+		ctx.shadowColor = 'red';
+		ctx.fill();
+
+		// Reset shadow for borders
+		ctx.shadowBlur = 0;
+		ctx.strokeStyle = '#FFFFFF';
+		ctx.lineWidth = 1;
+		ctx.stroke();
+	});
+};
+
+const handleMapMouseMove = (event: MouseEvent) => {
+	const canvas = mapCanvas.value;
+	if (!canvas) return;
+
+	// Calculate exact internal canvas coordinates
+	const rect = canvas.getBoundingClientRect();
+	const scaleX = width / rect.width;
+	const scaleY = height / rect.height;
+	const mouseX = (event.clientX - rect.left) * scaleX;
+	const mouseY = (event.clientY - rect.top) * scaleY;
+
+	let foundLoc = null;
+	const center = projection.invert!([width / 2, height / 2]);
+
+	if (center) {
+		for (const loc of locations.value) {
+			if (!loc.geo) continue;
+			const lat = loc.geo[1];
+			const lon = loc.geo[0];
+
+			if (d3.geoDistance([lon, lat], center) > Math.PI / 2) continue;
 			const proj = projection([lon, lat]);
-			if (!proj) return null;
+			if (!proj) continue;
 
-			return { ...loc, raw: loc, cx: proj[0], cy: proj[1] };
-		})
-		.filter(Boolean) as any[]; // Remove hidden servers
-});
+			// Calculate distance between mouse and node
+			const dx = mouseX - proj[0];
+			const dy = mouseY - proj[1];
+			if (Math.sqrt(dx * dx + dy * dy) < 20) {
+				// FIXED: Increased to 20px hit radius for easier hovering
+				foundLoc = loc;
+				break;
+			}
+		}
+	}
+
+	// Update UI state (Render loop will automatically catch this)
+	if (foundLoc) {
+		if (hoveredLoc.value?.id !== foundLoc.id) {
+			hoveredLoc.value = foundLoc;
+		}
+		tooltipPos.value = { x: event.clientX + 15, y: event.clientY + 15 };
+	} else if (hoveredLoc.value) {
+		hoveredLoc.value = null;
+	}
+};
+
+const handleMapMouseLeave = () => {
+	hoveredLoc.value = null;
+};
+
+const handleMapClick = () => {
+	if (hoveredLoc.value) goToLocation(hoveredLoc.value.id);
+};
 
 const getPingColorHex = (ping: number) => {
 	if (ping === 999 || !ping) return '#ef4444'; // Red (Blocked / Testing)
@@ -1252,14 +1339,6 @@ const getPingColorHex = (ping: number) => {
 	if (ping <= 100) return '#eab308'; // Yellow
 	if (ping <= 200) return '#f97316'; // Orange
 	return '#ef4444'; // Red
-};
-
-const showMapTooltip = (loc: ProcessedLocation, event: MouseEvent) => {
-	hoveredLoc.value = loc;
-	tooltipPos.value = { x: event.clientX + 15, y: event.clientY + 15 };
-};
-const hideMapTooltip = () => {
-	hoveredLoc.value = null;
 };
 
 const goToLocation = (locId: string) => {
@@ -1423,13 +1502,13 @@ const getBlockedCount = (loc: ProcessedLocation) => {
 };
 
 const setupMap = () => {
-	// Connect D3 Zoom to our SVG element
-	if (mapSvg.value) {
+	// Connect D3 Zoom/Drag to our Canvas Globe
+	if (mapCanvas.value) {
 		let lastX = 0;
 		let lastY = 0;
 
 		const zoom = d3
-			.zoom<SVGElement, unknown>()
+			.zoom<HTMLCanvasElement, unknown>()
 			.scaleExtent([1, 8])
 			.on('start', (event) => {
 				isDragging.value = true;
@@ -1437,40 +1516,96 @@ const setupMap = () => {
 				lastY = event.transform.y;
 			})
 			.on('zoom', (event) => {
-				// 1. Handle Zooming (Scale the globe mathematically)
-				projection.scale(initialScale * event.transform.k);
-				zoomScale.value = event.transform.k;
+				// Set the TARGET zoom, we will animate to it in the render loop
+				targetZoom.value = event.transform.k;
 
-				// 2. Handle Dragging (Rotate the globe)
 				if (event.sourceEvent) {
-					const dx = event.transform.x - lastX;
-					const dy = event.transform.y - lastY;
+					if (event.sourceEvent.type === 'wheel') {
+						// FIXED: Map the CSS mouse coordinates to the internal Canvas coordinates before inverting to prevent math corruption
+						const rect = mapCanvas.value!.getBoundingClientRect();
+						const scaleX = width / rect.width;
+						const scaleY = height / rect.height;
+						const cssMouse = d3.pointer(event.sourceEvent, mapCanvas.value);
+						const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [
+							number,
+							number,
+						];
 
-					rotation.value[0] += dx * 0.5; // Spin horizontally
-					rotation.value[1] -= dy * 0.5; // Tilt vertically
+						const geoPos = projection.invert!(internalMousePos);
 
-					// Prevent flipping completely upside down
-					rotation.value[1] = Math.max(-90, Math.min(90, rotation.value[1]));
-					projection.rotate([rotation.value[0], rotation.value[1], 0]);
+						// If hovering over the globe and zooming IN
+						if (geoPos && event.transform.k > currentZoom.value) {
+							const targetLon = -geoPos[0];
+							const targetLat = -geoPos[1];
+
+							// Nudge the target rotation towards the mouse's geographic coordinate
+							targetRotation.value[0] += (targetLon - targetRotation.value[0]) * 0.2;
+							targetRotation.value[1] += (targetLat - targetRotation.value[1]) * 0.2;
+						}
+					} else {
+						// When dragging, manually rotate based on mouse movement
+						// Divide sensitivity by current zoom level so it slows down as you zoom in!
+						const dx = event.transform.x - lastX;
+						const dy = event.transform.y - lastY;
+						const sensitivity = 0.5 / currentZoom.value;
+
+						targetRotation.value[0] += dx * sensitivity;
+						targetRotation.value[1] -= dy * sensitivity;
+					}
 				}
+
+				// Clamp pitch to prevent the globe from flipping upside down
+				targetRotation.value[1] = Math.max(-90, Math.min(90, targetRotation.value[1]));
 
 				lastX = event.transform.x;
 				lastY = event.transform.y;
-				trigger.value++;
 			})
 			.on('end', () => {
 				isDragging.value = false;
 			});
 
-		d3.select(mapSvg.value).call(zoom);
+		d3.select(mapCanvas.value)
+			.call(zoom)
+			.on('dblclick.zoom', (event) => {
+				const rect = mapCanvas.value!.getBoundingClientRect();
+				const scaleX = width / rect.width;
+				const scaleY = height / rect.height;
+				const cssMouse = d3.pointer(event, mapCanvas.value);
+				const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [number, number];
 
-		// 3. Auto-Rotation Loop (60fps)
+				const geoPos = projection.invert!(internalMousePos);
+
+				if (geoPos) {
+					const targetLon = -geoPos[0];
+					const targetLat = -geoPos[1];
+
+					// Center the rotation exactly on the double-clicked spot
+					targetRotation.value[0] = targetLon;
+					targetRotation.value[1] = targetLat;
+
+					// Programmatically step up the zoom by a factor of 2 (D3 limits clamp it automatically)
+					d3.select(mapCanvas.value!).transition().duration(0).call(zoom.scaleBy, 2);
+				}
+			});
+
+		// Unified 60fps Render Loop with LERP (Linear Interpolation)
 		d3.timer(() => {
 			if (!isDragging.value) {
-				rotation.value[0] += 0.15; // Slow ambient spin
-				projection.rotate([rotation.value[0], rotation.value[1], 0]);
-				trigger.value++;
+				// Slow down the ambient spin based on zoom level so it doesn't whip past!
+				targetRotation.value[0] += 0.05 / currentZoom.value;
 			}
+
+			// Smoothly animate current zoom towards target zoom
+			currentZoom.value += (targetZoom.value - currentZoom.value) * 0.15;
+			projection.scale(initialScale * currentZoom.value);
+			zoomScale.value = currentZoom.value;
+
+			// Smoothly animate current rotation towards target rotation
+			currentRotation.value[0] += (targetRotation.value[0] - currentRotation.value[0]) * 0.15;
+			currentRotation.value[1] += (targetRotation.value[1] - currentRotation.value[1]) * 0.15;
+			projection.rotate([currentRotation.value[0], currentRotation.value[1], 0]);
+
+			drawMap();
 		});
 	}
 };

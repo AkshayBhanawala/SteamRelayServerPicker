@@ -27,8 +27,8 @@ const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
 let mainWindow: BrowserWindow;
 const createWindow = () => {
 	mainWindow = new BrowserWindow({
-		width: 1200,
-		height: 850,
+		width: 1280,
+		height: 720,
 		minWidth: 900,
 		minHeight: 600,
 		backgroundColor: '#020617',
