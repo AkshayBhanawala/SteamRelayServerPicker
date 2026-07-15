@@ -1,7 +1,7 @@
 import { Configuration } from 'electron-builder';
 
 export const config: Configuration = {
-	appId: 'com.th3az.steam-server-relay-picker',
+	appId: 'com.th3az.steam-relay-server-picker',
 	productName: 'SteamRelayServerPicker',
 	electronLanguages: ["en"],
 	compression: 'normal',
