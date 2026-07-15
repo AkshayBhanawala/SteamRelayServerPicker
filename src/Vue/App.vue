@@ -31,30 +31,32 @@
 						</filter>
 					</defs>
 
-					<g :transform="zoomTransform">
-						<path
-							v-for="feature in geoFeatures"
-							:key="feature.id || Math.random()"
-							:d="pathGenerator(feature) || undefined"
-							class="map-country"
-							vector-effect="non-scaling-stroke"
-						/>
+					<!-- Holographic Ocean Sphere -->
+					<path :d="spherePath" class="map-ocean" />
 
-						<circle
-							v-for="loc in locations.filter((l) => l.geo)"
-							:key="loc.id"
-							:cx="getProjectedX(loc)"
-							:cy="getProjectedY(loc)"
-							:r="(hoveredLoc?.id === loc.id ? 4 : 2) / zoomScaleNormalized"
-							:stroke-width="(hoveredLoc?.id === loc.id ? 1.5 : 1) / zoomScaleNormalized"
-							:fill="getPingColorHex(loc.avgPing)"
-							filter="url(#glow)"
-							class="map-dot"
-							@mouseenter="showMapTooltip(loc, $event)"
-							@mouseleave="hideMapTooltip"
-							@click="goToLocation(loc.id)"
-						/>
-					</g>
+					<!-- Draw Countries -->
+					<path
+						v-for="feature in projectedFeatures"
+						:key="feature.id || Math.random()"
+						:d="feature.d"
+						class="map-country"
+					/>
+
+					<!-- Draw Server Nodes (Visible Front Half Only) -->
+					<circle
+						v-for="loc in visibleLocations"
+						:key="loc.id"
+						:cx="loc.cx"
+						:cy="loc.cy"
+						:r="(hoveredLoc?.id === loc.id ? 4 : 2) / zoomScaleNormalized"
+						:stroke-width="(hoveredLoc?.id === loc.id ? 1.5 : 1) / zoomScaleNormalized"
+						:fill="getPingColorHex(loc.avgPing)"
+						filter="url(#glow)"
+						class="map-dot"
+						@mouseenter="showMapTooltip(loc.raw, $event)"
+						@mouseleave="hideMapTooltip"
+						@click="goToLocation(loc.id)"
+					/>
 				</svg>
 			</div>
 
@@ -803,21 +805,21 @@
 	transform: rotate(180deg);
 }
 .card-highlighted {
-  animation: mapHighlightPulse 1.5s ease-out;
-  border-color: #fb923c !important;
+	animation: mapHighlightPulse 1.5s ease-out;
+	border-color: #fb923c !important;
 }
 @keyframes mapHighlightPulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.4);
-    background-color: rgba(251, 146, 60, 0.1);
-  }
-  70% {
-    box-shadow: 0 0 0 15px rgba(251, 146, 60, 0);
-    background-color: transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(251, 146, 60, 0);
-  }
+	0% {
+		box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.4);
+		background-color: rgba(251, 146, 60, 0.1);
+	}
+	70% {
+		box-shadow: 0 0 0 15px rgba(251, 146, 60, 0);
+		background-color: transparent;
+	}
+	100% {
+		box-shadow: 0 0 0 0 rgba(251, 146, 60, 0);
+	}
 }
 
 /* Drawer */
@@ -1100,12 +1102,17 @@ const activeAppId = computed(() =>
 // --- Map State Variables ---
 const geoFeatures = ref<any[]>([]);
 const mapSvg = ref<SVGElement | null>(null);
-const zoomTransform = ref<string>('');
 const zoomScale = ref<number>(1);
 const hoveredLoc = ref<ProcessedLocation | null>(null);
 const tooltipPos = ref({ x: 0, y: 0 });
-const zoomScaleNormalized = computed(() => Math.trunc(Math.log2(zoomScale.value)) || 1);
+const zoomScaleNormalized = computed(() => {
+	return Math.trunc(Math.log2(zoomScale.value)) || 1;
+	return Math.sqrt(zoomScale.value);
+});
 const highlightedLocId = ref<string | null>(null);
+const rotation = ref<[number, number]>([0, 0]); // Yaw, Pitch
+const isDragging = ref(false);
+const trigger = ref(0); // Forces Vue to react to 60fps D3 changes
 
 const filteredLocations = computed(() => {
 	if (!searchQuery.value)
@@ -1194,6 +1201,9 @@ watch(
 	{ immediate: true },
 );
 
+const initialScale = 130;
+const projection = d3.geoOrthographic().scale(initialScale).translate([200, 150]);
+const pathGenerator = d3.geoPath().projection(projection);
 const fetchMapData = async () => {
 	try {
 		const res = await fetch(
@@ -1205,14 +1215,36 @@ const fetchMapData = async () => {
 		console.error('Failed to load map geometry', e);
 	}
 };
-// Create a static Mercator projection that fits our 400x300 viewBox
-const projection = d3.geoMercator().scale(60).translate([200, 180]);
-const pathGenerator = d3.geoPath().projection(projection);
+const spherePath = computed(() => {
+	trigger.value;
+	return pathGenerator({ type: 'Sphere' } as d3.GeoPermissibleObjects) || '';
+});
+const projectedFeatures = computed(() => {
+	trigger.value;
+	return geoFeatures.value.map((f) => ({ ...f, d: pathGenerator(f) }));
+});
+const visibleLocations = computed(() => {
+	trigger.value;
+	const center = projection.invert!([200, 150]);
+	if (!center) return [];
 
-const getProjectedX = (loc: ProcessedLocation) =>
-	loc.geo ? projection([loc.geo[0], loc.geo[1]])![0] : -100;
-const getProjectedY = (loc: ProcessedLocation) =>
-	loc.geo ? projection([loc.geo[0], loc.geo[1]])![1] : -100;
+	return locations.value
+		.filter((loc) => loc.geo)
+		.map((loc) => {
+			const lon = loc.geo![0];
+			const lat = loc.geo![1];
+
+			// If the distance to the center is > 90 degrees, it's on the back of the globe!
+			const dist = d3.geoDistance([lon, lat], center);
+			if (dist > Math.PI / 2) return null;
+
+			const proj = projection([lon, lat]);
+			if (!proj) return null;
+
+			return { ...loc, raw: loc, cx: proj[0], cy: proj[1] };
+		})
+		.filter(Boolean) as any[]; // Remove hidden servers
+});
 
 const getPingColorHex = (ping: number) => {
 	if (ping === 999 || !ping) return '#ef4444'; // Red (Blocked / Testing)
@@ -1222,12 +1254,10 @@ const getPingColorHex = (ping: number) => {
 	return '#ef4444'; // Red
 };
 
-// Tooltip & Interactions
 const showMapTooltip = (loc: ProcessedLocation, event: MouseEvent) => {
 	hoveredLoc.value = loc;
 	tooltipPos.value = { x: event.clientX + 15, y: event.clientY + 15 };
 };
-
 const hideMapTooltip = () => {
 	hoveredLoc.value = null;
 };
@@ -1392,21 +1422,63 @@ const getBlockedCount = (loc: ProcessedLocation) => {
 	return loc.relays.filter((r) => r.blocked).length;
 };
 
-onMounted(async () => {
-	loadSettings();
-	fetchMapData();
-
+const setupMap = () => {
 	// Connect D3 Zoom to our SVG element
 	if (mapSvg.value) {
+		let lastX = 0;
+		let lastY = 0;
+
 		const zoom = d3
 			.zoom<SVGElement, unknown>()
 			.scaleExtent([1, 8])
-			.on('zoom', (event: d3.D3ZoomEvent<SVGElement, unknown>) => {
-				zoomTransform.value = event.transform.toString();
-				zoomScale.value = event.transform.k || 1;
+			.on('start', (event) => {
+				isDragging.value = true;
+				lastX = event.transform.x;
+				lastY = event.transform.y;
+			})
+			.on('zoom', (event) => {
+				// 1. Handle Zooming (Scale the globe mathematically)
+				projection.scale(initialScale * event.transform.k);
+				zoomScale.value = event.transform.k;
+
+				// 2. Handle Dragging (Rotate the globe)
+				if (event.sourceEvent) {
+					const dx = event.transform.x - lastX;
+					const dy = event.transform.y - lastY;
+
+					rotation.value[0] += dx * 0.5; // Spin horizontally
+					rotation.value[1] -= dy * 0.5; // Tilt vertically
+
+					// Prevent flipping completely upside down
+					rotation.value[1] = Math.max(-90, Math.min(90, rotation.value[1]));
+					projection.rotate([rotation.value[0], rotation.value[1], 0]);
+				}
+
+				lastX = event.transform.x;
+				lastY = event.transform.y;
+				trigger.value++;
+			})
+			.on('end', () => {
+				isDragging.value = false;
 			});
+
 		d3.select(mapSvg.value).call(zoom);
+
+		// 3. Auto-Rotation Loop (60fps)
+		d3.timer(() => {
+			if (!isDragging.value) {
+				rotation.value[0] += 0.15; // Slow ambient spin
+				projection.rotate([rotation.value[0], rotation.value[1], 0]);
+				trigger.value++;
+			}
+		});
 	}
+};
+
+onMounted(async () => {
+	loadSettings();
+	fetchMapData();
+	setupMap();
 
 	if (isElectron && window.electronAPI) {
 		isAdmin.value = await window.electronAPI.checkAdmin();
