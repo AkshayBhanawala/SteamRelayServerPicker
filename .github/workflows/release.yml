@@ -50,7 +50,7 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # ==========================================
   # JOB 2: BUILD ELECTRON APP & CREATE RELEASE
