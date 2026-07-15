@@ -19,7 +19,7 @@ if (app.isPackaged) {
 } else {
 	__fileStorageBasePath = path.join(__appAsarPath, 'release'); ;
 }
-logger.transports.file.resolvePathFn = (variables, message) => {
+logger.transports.file.resolvePathFn = (variables) => {
 	return path.join(__fileStorageBasePath, 'logs', variables.fileName || 'main.log');
 };
 

@@ -20,7 +20,7 @@ export const config: Configuration = {
 		icon: "public/icons/icon.icns",
 	},
 	linux: {
-		target: ['AppImage'],
+		target: ['AppImage', 'zip'],
 		compression: 'normal',
 		icon: "public/icons/icon_256x256.png",
 	},
