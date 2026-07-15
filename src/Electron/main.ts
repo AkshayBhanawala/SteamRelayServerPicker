@@ -9,23 +9,39 @@ import os from 'os';
 import { installIpcLogger } from 'electron-ipc-logger';
 import logger from 'electron-log/main';
 
+const __exePath = app.getPath('exe');
+const __exeDir = path.dirname(__exePath);
+const __appAsarPath = app.getAppPath();
+
+let __fileStorageBasePath = '';
+if (app.isPackaged) {
+	__fileStorageBasePath = __exeDir;
+} else {
+	__fileStorageBasePath = path.join(__appAsarPath, 'release'); ;
+}
+logger.transports.file.resolvePathFn = (variables, message) => {
+	return path.join(__fileStorageBasePath, 'logs', variables.fileName || 'main.log');
+};
+
 logger.initialize();
 logger.info(`Application is starting up...`);
 logger.info(`app.isPackaged?:`, app.isPackaged);
 
-const __appPath = app.getAppPath();
-logger.log(`__appPath:`, __appPath);
+logger.log(`__exePath:`, __exePath);
+logger.log(`__exeDir:`, __exeDir);
+logger.log(`__appAsarPath:`, __appAsarPath);
+logger.log(`__fileStorageBasePath:`, __fileStorageBasePath);
 
-const __appIconPath = path.join(__appPath, 'public', 'icons', 'icon.ico');
+const __appIconPath = path.join(__appAsarPath, 'public', 'icons', 'icon.ico');
 logger.log(`__appIconPath:`, __appIconPath);
 
-const __filename = fileURLToPath(import.meta.url);
-logger.log(`__filename:`, __filename);
+const __entrypointFile = fileURLToPath(import.meta.url);
+logger.log(`__entrypointFile:`, __entrypointFile);
 
-const __dirname = dirname(__filename);
-logger.log(`__dirname:`, __dirname);
+const __entrypointDir = dirname(__entrypointFile);
+logger.log(`__entrypointDir:`, __entrypointDir);
 
-const __preloadFilePath = path.join(__dirname, 'preload.mjs');
+const __preloadFilePath = path.join(__entrypointDir, 'preload.mjs');
 logger.log(`__preloadFilePath:`, __preloadFilePath);
 
 // Break the V-Sync lock
@@ -42,9 +58,9 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 
-const BASE_APP_DIRECTORY = path.join(app.getPath('userData'));
+const BASE_CONFIG_SAVE_DIRECTORY = path.join(__fileStorageBasePath, 'config');
 const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker-SDRBlock--`;
-const getConfigFilePath = (appId: string) => path.join(BASE_APP_DIRECTORY, `blocked_ips_${appId}.json`);
+const getConfigFilePath = (appId: string) => path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${appId}.json`);
 const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
 
 let mainWindow: BrowserWindow;
@@ -68,7 +84,7 @@ const createWindow = () => {
 
 	if (app.isPackaged) {
 		// Built App
-		mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+		mainWindow.loadFile(path.join(__entrypointDir, '../dist/index.html'));
 	} else if (process.env.VITE_DEV_SERVER_URL) {
 		// Dev Running App
 		mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -77,8 +93,8 @@ const createWindow = () => {
 		mainWindow.loadURL('');
 	}
 
-	if (!fs.existsSync(BASE_APP_DIRECTORY)) {
-		fs.mkdirSync(BASE_APP_DIRECTORY);
+	if (!fs.existsSync(BASE_CONFIG_SAVE_DIRECTORY)) {
+		fs.mkdirSync(BASE_CONFIG_SAVE_DIRECTORY);
 	}
 };
 
