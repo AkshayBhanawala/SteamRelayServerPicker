@@ -1,11 +1,16 @@
-### 🌐 [Try the Live Web Demo here!](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
-
-*(This demo is just for show. The web demo runs in a restricted "Diagnostic Mode" using simulated pings due to browser CORS and network limitations. And It can not modify any firewall rules as well.).*
+# [Steam Relay Server Picker](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
 
 <p align="center">
 <img src="./public/icons/icon_256x256.png" alt="App Icon" />
 </p>
 
+---
+
+### 🌐 [Try the Live Web Demo here!](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
+
+*(This demo is just for show. The web demo runs in a restricted "Diagnostic Mode" using simulated pings due to browser CORS and network limitations. And It can not modify any firewall rules as well.).*
+
+---
 ## 🌟 Overview
 
 Steam Relay Server Picker is an Electron-based desktop application designed to help competitive gamers monitor and control their connection to Steam's worldwide datagram relay infrastructure.
@@ -17,7 +22,7 @@ It visualizes real-time pings on an interactive, fully rotatable 3D holographic 
 * **📡 Live Ping Diagnostics:** Multithreaded ICMP pinging to map your actual latency to global Steam datacenters.
 * **🛡️ Windows Firewall Integration:** One-click blocking/unblocking of specific datacenters to avoid high-ping routing.
 * **🌍 3D Holographic Globe:** Built with D3.js and Canvas, rendering global server nodes in real-time.
-
+* **✏️ Custom Steam AppID:** Allows to use custom steam App ID to manage it's servers.
 ---
 
 ## 🎮 Supported Games & How It Works
@@ -43,13 +48,13 @@ To ensure server clusters and IPs are always accurate and up-to-date, this appli
 | **Windows** | Windows 10 / 11 (64-bit) | ✅ **Fully Tested & Supported (Tested on Win 11)** |
 | **Linux** | Ubuntu 20.04 or equivalent | ⚠️ **Untested / Unverified** |
 
-*Note: While automated builds are generated for Linux, I've currently only tests the application on Windows 11. Linux builds are provided "as-is".*
+*Note: While automated builds are generated for Linux, Currently I've only tested the application on Windows 11. Linux builds are provided "as-is".*
 
 ---
 
 ## 📥 Downloads & Installation
 
-You can download the latest compiled executables for your operating system from the **[GitHub Releases Page](https://www.google.com/search?q=https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/releases/latest)**.
+You can download the latest compiled executables for your operating system from the **[GitHub Releases Page](https://github.com/AkshayBhanawala/SteamRelayServerPicker/releases/)**.
 
 ### 🪟 Windows (Fully Supported)
 
@@ -87,25 +92,25 @@ Rather than risk permanently damaging your operating system's network configurat
 ## 📸 Screenshots
 
 <p align="center">
-<img src="./public/images/01. App - Downloaded Files.png" alt="App - Downloaded Files" />
+<img src="./public/images/01.App-Windows-DownloadedFiles.png" alt="App - Downloaded Files" />
 </p>
 <p align="center">
-<img src="./public/images/02. App - Dashboard - Basic.png" alt="App - Dashboard - Basic" />
+<img src="./public/images/02.App-Windows-Dashboard-Basic.png" alt="App - Dashboard - Basic" />
 </p>
 <p align="center">
-<img src="./public/images/03. App - Dashboard - Map Dot Hover.png" alt="App - Dashboard - Map Dot Hover" />
+<img src="./public/images/03.App-Windows-Dashboard-MapDotHover.png" alt="App - Dashboard - Map Dot Hover" />
 </p>
 <p align="center">
-<img src="./public/images/04. App - Dashboard - Location Filter.png" alt="App - Dashboard - Location Filter" />
+<img src="./public/images/04.App-Windows-Dashboard-LocationFilter.png" alt="App - Dashboard - Location Filter" />
 </p>
 <p align="center">
-<img src="./public/images/05. App - Apply Rule from Non Admin Window.png" alt="App - Apply Rule from Non Admin Window" />
+<img src="./public/images/05.App-Windows-ApplyRuleFromNonAdminAppLaunch.png" alt="App - Apply Rule from Non Admin Window" />
 </p>
 <p align="center">
-<img src="./public/images/06. App - Dashboard with Blocked Location.png" alt="App - Dashboard with Blocked Location" />
+<img src="./public/images/06.App-Windows-DashboardWithBlockedLocation.png" alt="App - Dashboard with Blocked Location" />
 </p>
 <p align="center">
-<img src="./public/images/07. App - Settings.png" alt="App - Settings" />
+<img src="./public/images/07.App-Windows-Settings.png" />
 </p>
 
 ---
@@ -160,4 +165,7 @@ npm run build:web
 
 <br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br />
 
-*Tags for Search: Steam Server Picker, SDR Server Picker, CS2 Server Picker, Deadlock Server Picker, Steam Datagram Relay Network, Matchmaking Region Blocker, Ping Optimizer, CS:GO Server Picker Alternative, Block Steam Servers, Electron, Vue 3, D3.js 3D Globe.*
+<details>
+	<summary>Tags</summary>
+	Steam Server Picker, SDR Server Picker, CS2 Server Picker, Deadlock Server Picker, Steam Datagram Relay Network, Matchmaking Region Blocker, Ping Optimizer, CS:GO Server Picker Alternative, Block Steam Servers, Electron, Vue 3, D3.js 3D Globe.
+</details>
