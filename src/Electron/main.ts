@@ -19,6 +19,20 @@ logger.log(`__filename:`, __filename);
 const __dirname = dirname(__filename);
 logger.log(`__dirname:`, __dirname);
 
+// Break the V-Sync lock
+app.commandLine.appendSwitch('disable-gpu-vsync');
+app.commandLine.appendSwitch('disable-frame-rate-limit');
+
+// Prevent Windows from putting the app into 30fps "Efficiency Mode"
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
+// Other GPU Flags
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+
 const BASE_APP_DIRECTORY = path.join(app.getPath('userData'));
 const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker-SDRBlock--`;
 const getConfigFilePath = (appId: string) => path.join(BASE_APP_DIRECTORY, `blocked_ips_${appId}.json`);
@@ -36,6 +50,9 @@ const createWindow = () => {
 			preload: path.join(__dirname, 'preload.mjs'),
 			contextIsolation: true,
 			nodeIntegration: false,
+			backgroundThrottling: false,
+			webgl: true,
+			scrollBounce: false,
 		},
 	});
 
@@ -94,6 +111,7 @@ app.whenReady().then(async () => {
 	} else {
 		await installIpcLogger({ parent: mainWindow });
 	}
+	console.log('GPU Feature Status:', app.getGPUFeatureStatus());
 
 	ipcMain.handle('fetch-app-details', async (_, appId: string) => {
 		const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`);

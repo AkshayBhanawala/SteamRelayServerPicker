@@ -15,21 +15,15 @@
 				</div>
 				<div class="game-info">
 					<h1 class="game-title">{{ gameMeta.title }}</h1>
-					<!-- <p class="game-description">{{ gameMeta.desc }}</p> -->
 				</div>
 			</div>
 
-			<div class="map-container" v-show="!isSettingsOpen">
-				<canvas
-					ref="mapCanvas"
-					width="800"
-					height="600"
-					class="map-canvas"
-					@mousemove="handleMapMouseMove"
-					@mouseleave="handleMapMouseLeave"
-					@click="handleMapClick"
-				></canvas>
-			</div>
+			<!-- Abstracted Map Component -->
+			<GlobeMap
+				:locations="locations"
+				:isSettingsOpen="isSettingsOpen"
+				@location-click="goToLocation"
+			/>
 
 			<div class="status-footer">
 				<span class="status-indicator">
@@ -46,7 +40,7 @@
 		</div>
 
 		<div class="right-panel">
-			<div v-show="currentView === 'dashboard'" class="view-container">
+			<div v-show="!isSettingsOpen" class="view-container">
 				<div class="panel-header text-left">
 					<div class="header-text">
 						<h2>Relay Configuration</h2>
@@ -105,7 +99,6 @@
 							Unselect All
 						</button>
 					</div>
-
 					<button
 						class="btn btn-primary"
 						@click="triggerPings"
@@ -193,7 +186,6 @@
 										}}
 									</span>
 								</template>
-
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
 									fill="none"
@@ -283,86 +275,485 @@
 				</div>
 			</div>
 
-			<div v-if="isSettingsOpen" class="view-container settings-view">
-				<div class="panel-header text-left">
-					<div class="header-text">
-						<h2>Application Settings</h2>
-						<p>Target specific Steam Application networks</p>
-					</div>
-					<button class="btn btn-ghost" @click="cancelSettings()">Cancel</button>
-				</div>
-
-				<div class="settings-content">
-					<div class="form-group">
-						<label>Select Target Game / Application</label>
-						<select v-model="selectedGame" class="ui-select">
-							<option value="730">Counter-Strike 2 (730)</option>
-							<option value="1422450">Deadlock (1422450)</option>
-							<option value="3065800">Marathon (3065800)</option>
-							<option value="custom">Custom App ID...</option>
-						</select>
-					</div>
-
-					<div v-if="selectedGame === 'custom'" class="form-group slide-down">
-						<label>Enter Custom Steam App ID</label>
-						<input
-							type="number"
-							min="1"
-							v-model="customAppId"
-							class="ui-input"
-							placeholder="e.g. 570 for Dota 2"
-						/>
-						<p class="helper-text">
-							Must be a positive integer matching a valid Steam Datagram network.
-						</p>
-					</div>
-
-					<button class="btn btn-primary save-btn" @click="saveAndApplySettings">
-						Save & Connect
-					</button>
-				</div>
-			</div>
+			<!-- Abstracted Settings Component -->
+			<SettingsPanel
+				v-if="isSettingsOpen"
+				:selectedGame="selectedGame"
+				:customAppId="customAppId"
+				@preview="previewSettings"
+				@save="saveAndApplySettings"
+				@cancel="cancelSettings"
+			/>
 		</div>
 
-		<div
-			v-if="hoveredLoc"
-			class="map-tooltip"
-			:style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
-		>
-			<h4>{{ hoveredLoc.description }} ({{ hoveredLoc.id }})</h4>
-			<div class="tooltip-ips">
-				<div
-					v-for="relay in hoveredLoc.relays"
-					:key="relay.ipv4"
-					:style="{ color: getPingColorHex(relay.ping || 999) }"
-				>
-					<span>{{ relay.ipv4 }}</span>
-					<span v-if="relay.blocked">🔒 Blocked</span>
-					<span v-else>{{ relay.ping ? relay.ping + 'ms' : 'Measuring' }}</span>
-				</div>
-			</div>
-		</div>
-
-		<div v-if="adminModal.show" class="modal-overlay">
-			<div class="modal-content">
-				<h3>Admin Privileges Required</h3>
-				<p>Windows requires Administrator rights to modify Firewall rules.</p>
-				<div class="modal-actions">
-					<button class="btn btn-primary" @click="executeAdminModalChoice('restart')">
-						Restart App as Admin
-					</button>
-					<button class="btn btn-warning" @click="executeAdminModalChoice('continue')">
-						Elevate this action only
-					</button>
-					<button class="btn btn-ghost" @click="executeAdminModalChoice('cancel')">Cancel</button>
-				</div>
-			</div>
-		</div>
+		<!-- Abstracted Admin Modal Component -->
+		<AdminModal v-if="adminModal.show" @choice="executeAdminModalChoice" />
 	</div>
 </template>
 
+<script setup lang="ts">
+import { ref, onMounted, computed, watch } from 'vue';
+import { useDebounceFn } from '@vueuse/core';
+import GlobeMap from './components/GlobeMap.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
+import AdminModal from './components/AdminModal.vue';
+import type { ProcessedLocation } from '../types';
+
+// Constants
+const MAX_PING = 9999;
+const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker`;
+const getPendingActionName = () => `${BASE_FIREWALL_RULE_NAME}--PendingFwAction`;
+
+// --- Application State ---
+const isElectron = 'electronAPI' in window;
+const currentView = ref<'dashboard' | 'settings'>('dashboard');
+const gameMeta = ref({
+	title: 'Loading...',
+	desc: 'Fetching application details from Steam...',
+	image: '',
+});
+const locations = ref<ProcessedLocation[]>([]);
+const isLoading = ref<boolean>(true);
+const isUpdatingPings = ref<boolean>(false);
+const isProcessingFirewall = ref<boolean>(false);
+const errorMessage = ref<string | null>(null);
+const searchQuery = ref<string>('');
+const isAdmin = ref<boolean>(false);
+const selectedGame = ref<string>('730');
+const customAppId = ref<string>('');
+const activeAppId = computed(() =>
+	selectedGame.value === 'custom' ? customAppId.value : selectedGame.value,
+);
+const highlightedLocId = ref<string | null>(null);
+const adminModal = ref({
+	show: false,
+	newBlocked: [] as string[],
+});
+
+// --- Computed State ---
+const isSettingsOpen = computed(() => currentView.value === 'settings');
+const filteredLocations = computed(() => {
+	if (!searchQuery.value) return locations.value;
+
+	const lowerQ = searchQuery.value.toLowerCase();
+	return locations.value.filter(
+		(loc) =>
+			loc.id.toLowerCase().includes(lowerQ) ||
+			loc.description.toLowerCase().includes(lowerQ) ||
+			loc.relays.some((r) => r.ipv4.includes(lowerQ)),
+	);
+});
+
+const hasAnySelected = computed(() =>
+	locations.value.some((l) => l.relays.some((r) => r.selected)),
+);
+const hasAnyUnblocked = computed(() =>
+	locations.value.some((l) => l.relays.some((r) => !r.blocked)),
+);
+const hasAnyBlocked = computed(() => locations.value.some((l) => l.relays.some((r) => r.blocked)));
+const hasSelectedUnblocked = computed(() =>
+	locations.value.some((l) => l.relays.some((r) => r.selected && !r.blocked)),
+);
+const hasSelectedBlocked = computed(() =>
+	locations.value.some((l) => l.relays.some((r) => r.selected && r.blocked)),
+);
+const areOperationsBlocked = computed(() => isLoading.value || isUpdatingPings.value);
+const isLocationAllIpsBlocked = computed(
+	() => (loc: ProcessedLocation) =>
+		isElectron && loc.relays.length > 0 && getBlockedCount(loc) === loc.relays.length,
+);
+const isLocationSomeIpsBlocked = computed(
+	() => (loc: ProcessedLocation) =>
+		isElectron && getBlockedCount(loc) > 0 && getBlockedCount(loc) < loc.relays.length,
+);
+const isMaxPing = computed(() => (ping: number) => ping === MAX_PING);
+
+// --- Core API & Logic ---
+let fetchTimeout: number | null = null;
+const fetchGameMeta = async (appId: string) => {
+	if (!appId) return;
+	gameMeta.value = { title: `App ID: ${appId}`, desc: 'Fetching details...', image: '' };
+
+	try {
+		let data;
+		if (isElectron && window.electronAPI) {
+			data = await window.electronAPI.getAppDetails(appId);
+		} else {
+			const res = await fetch(`/api-store/api/appdetails?appids=${appId}`);
+			data = await res.json();
+		}
+
+		if (data && data[appId] && data[appId].success) {
+			const appData = data[appId].data;
+			gameMeta.value = {
+				title: appData.name,
+				desc: appData.short_description || 'No description available.',
+				image: appData.header_image,
+			};
+		} else {
+			gameMeta.value = {
+				title: `App ID: ${appId}`,
+				desc: 'Custom Application Network.',
+				image: '---INVALID---',
+			};
+		}
+	} catch (e) {
+		gameMeta.value = { title: `App ID: ${appId}`, desc: 'Failed to fetch details.', image: '' };
+	}
+};
+watch(
+	activeAppId,
+	(newId) => {
+		if (fetchTimeout) clearTimeout(fetchTimeout);
+		fetchTimeout = window.setTimeout(() => fetchGameMeta(newId), 500);
+	},
+	{ immediate: true },
+);
+
+const pingServer = async (ip: string): Promise<number> => {
+	try {
+		if (isElectron && window.electronAPI) return await window.electronAPI.ping(ip);
+		const response = await fetch(`/api-ping?ip=${ip}`);
+		const data = await response.json();
+		return data.alive && typeof data.time === 'number' ? Math.round(data.time) : MAX_PING;
+	} catch (err) {
+		return MAX_PING;
+	}
+};
+
+const refreshFirewallState = async () => {
+	if (!isElectron || !window.electronAPI) return;
+	const blockedIps = await window.electronAPI.getBlockedIps(activeAppId.value);
+	locations.value.forEach((loc) => {
+		loc.relays.forEach((relay) => {
+			relay.blocked = blockedIps.includes(relay.ipv4);
+		});
+	});
+};
+
+const triggerPings = async () => {
+	if (isUpdatingPings.value) return;
+	isUpdatingPings.value = true;
+
+	await Promise.all(
+		filteredLocations.value.map(async (loc) => {
+			let validSum = 0;
+			let validCount = 0;
+			const pingPromises = loc.relays.map(async (relay) => {
+				const latency = await pingServer(relay.ipv4);
+				relay.ping = latency;
+				if (!relay.blocked && latency !== MAX_PING) {
+					validSum += latency;
+					validCount++;
+				}
+			});
+			await Promise.all(pingPromises);
+			loc.avgPing = validCount > 0 ? Math.round(validSum / validCount) : MAX_PING;
+		}),
+	);
+
+	locations.value.sort((a, b) => a.avgPing - b.avgPing);
+	isUpdatingPings.value = false;
+};
+
+const loadGameData = async () => {
+	try {
+		isLoading.value = true;
+		errorMessage.value = null;
+
+		let data;
+		if (isElectron && window.electronAPI) {
+			data = await window.electronAPI.getSteamSDR(activeAppId.value);
+		} else {
+			const response = await fetch(
+				`/api-steam/ISteamApps/GetSDRConfig/v1?appid=${activeAppId.value}`,
+			);
+			if (!response.ok) throw new Error('Failed to retrieve SDR Configuration.');
+			data = await response.json();
+		}
+
+		locations.value = Object.entries(data.pops)
+			.map(([key, value]: any) => ({
+				id: key,
+				description: value.desc,
+				relays: (value.relays || []).map((r: any) => ({
+					...r,
+					ping: undefined,
+					selected: false,
+					blocked: false,
+				})),
+				avgPing: 0,
+				isExpanded: false,
+				geo: value.geo,
+			}))
+			.filter((loc) => loc.relays.length > 0);
+
+		if (isElectron) await refreshFirewallState();
+
+		isLoading.value = false;
+		await triggerPings();
+	} catch (err: any) {
+		errorMessage.value = err.message || 'An unexpected error occurred.';
+		isLoading.value = false;
+	}
+};
+
+const goToLocation = (locId: string) => {
+	const el = document.getElementById(`loc-card-${locId}`);
+	if (el) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		(el.querySelector(`.location-toggle`) as any)?.click();
+	}
+	highlightedLocId.value = locId;
+	setTimeout(() => {
+		if (highlightedLocId.value === locId) highlightedLocId.value = null;
+	}, 1500);
+};
+
+// --- Settings & UI Helpers ---
+const loadSettings = () => {
+	const saved = localStorage.getItem('sdr_settings');
+	if (saved) {
+		const parsed = JSON.parse(saved);
+		selectedGame.value = parsed.selectedGame || '730';
+		customAppId.value = parsed.customAppId || '';
+	} else {
+		selectedGame.value = '730';
+		customAppId.value = '';
+	}
+};
+
+const openSettings = () => {
+	currentView.value = 'settings';
+};
+
+const beforeSettingsPreview = { gameId: '', customId: '' };
+
+const previewSettings = useDebounceFn((gameId: string, customId: string) => {
+	if (gameId === 'custom') {
+		const num = parseInt(customId, 10);
+		if (isNaN(num) || num <= 0) {
+			return;
+		}
+		customId = num.toString();
+	}
+
+	beforeSettingsPreview.gameId = selectedGame.value;
+	beforeSettingsPreview.customId = customAppId.value;
+
+	selectedGame.value = gameId;
+	customAppId.value = customId;
+}, 200);
+
+const saveAndApplySettings = async (gameId: string, customId: string) => {
+	let finalCustomId = customId;
+	if (gameId === 'custom') {
+		const num = parseInt(finalCustomId, 10);
+		if (isNaN(num) || num <= 0) {
+			alert('App ID must be a valid positive number.');
+			return;
+		}
+		finalCustomId = num.toString();
+	}
+
+	beforeSettingsPreview.gameId = '';
+	beforeSettingsPreview.customId = '';
+
+	selectedGame.value = gameId;
+	customAppId.value = finalCustomId;
+
+	localStorage.setItem(
+		'sdr_settings',
+		JSON.stringify({ selectedGame: selectedGame.value, customAppId: customAppId.value }),
+	);
+	currentView.value = 'dashboard';
+	await loadGameData();
+};
+
+const cancelSettings = () => {
+	if (
+		beforeSettingsPreview.gameId !== selectedGame.value &&
+		beforeSettingsPreview.customId !== customAppId.value
+	) {
+		selectedGame.value = beforeSettingsPreview.gameId;
+		customAppId.value = beforeSettingsPreview.customId;
+		beforeSettingsPreview.gameId = '';
+		beforeSettingsPreview.customId = '';
+	}
+	loadSettings();
+	currentView.value = 'dashboard';
+};
+
+const getPingColorClass = (ping: number): string => {
+	if (ping <= 50) return 'ping-excellent';
+	if (ping <= 100) return 'ping-good';
+	if (ping <= 200) return 'ping-fair';
+	if (ping <= 300) return 'ping-poor';
+	return 'ping-bad';
+};
+
+const getBlockedCount = (loc: ProcessedLocation) => loc.relays.filter((r) => r.blocked).length;
+const toggleLocationExpand = (index: number) => {
+	locations.value[index].isExpanded = !locations.value[index].isExpanded;
+};
+const isGroupSelected = (loc: ProcessedLocation) =>
+	loc.relays.length > 0 && loc.relays.every((r) => r.selected);
+const toggleGroupSelection = (loc: ProcessedLocation, event: Event) => {
+	event.stopPropagation();
+	const targetState = !isGroupSelected(loc);
+	loc.relays.forEach((r) => (r.selected = targetState));
+};
+const toggleAll = (state: boolean) =>
+	locations.value.forEach((loc) => loc.relays.forEach((r) => (r.selected = state)));
+
+// --- Firewall Engine ---
+const getTargetIps = (context: 'all' | 'selected', requirement: 'blocked' | 'unblocked') => {
+	const ips: string[] = [];
+	locations.value.forEach((loc) => {
+		loc.relays.forEach((r) => {
+			const matchContext = context === 'all' || r.selected;
+			const matchReq = requirement === 'blocked' ? r.blocked : !r.blocked;
+			if (matchContext && matchReq) ips.push(r.ipv4);
+		});
+	});
+	return ips;
+};
+
+const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: string[]) => {
+	targetIps = JSON.parse(JSON.stringify(targetIps));
+	if (targetIps.length === 0) return;
+
+	const currentBlocked = getTargetIps('all', 'blocked');
+	let newBlocked = [...currentBlocked];
+
+	if (action === 'block') {
+		newBlocked = [...new Set([...newBlocked, ...targetIps])];
+	} else {
+		newBlocked = newBlocked.filter((ip) => !targetIps.includes(ip));
+	}
+
+	if (isAdmin.value && window.electronAPI) {
+		isProcessingFirewall.value = true;
+		await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
+		await refreshFirewallState();
+		toggleAll(false);
+		isProcessingFirewall.value = false;
+		await triggerPings();
+	} else {
+		adminModal.value = { show: true, newBlocked };
+	}
+};
+
+const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel') => {
+	const { newBlocked } = JSON.parse(JSON.stringify(adminModal.value));
+	adminModal.value.show = false;
+
+	if (choice === 'cancel' || !window.electronAPI) return;
+
+	if (choice === 'restart') {
+		localStorage.setItem(
+			getPendingActionName(),
+			JSON.stringify({ ips: newBlocked, appId: activeAppId.value }),
+		);
+		await window.electronAPI.relaunchElevated();
+	}
+
+	if (choice === 'continue') {
+		isProcessingFirewall.value = true;
+		await window.electronAPI.syncFirewall(newBlocked, true, activeAppId.value);
+		await refreshFirewallState();
+		toggleAll(false);
+		isProcessingFirewall.value = false;
+		await triggerPings();
+	}
+};
+
+onMounted(async () => {
+	loadSettings();
+	if (isElectron && window.electronAPI) {
+		isAdmin.value = await window.electronAPI.checkAdmin();
+		const pendingStr = localStorage.getItem(getPendingActionName());
+		if (pendingStr && isAdmin.value) {
+			isProcessingFirewall.value = true;
+			const pending = JSON.parse(pendingStr);
+			await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
+			localStorage.removeItem(getPendingActionName());
+			isProcessingFirewall.value = false;
+		}
+	}
+	setTimeout(() => loadGameData(), 1000);
+});
+</script>
+
+<style>
+/* --- Global Shared Styles (Passed to Child Components) --- */
+.view-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	width: 100%;
+}
+.panel-header {
+  padding: 1rem;
+  background-color: rgba(2, 6, 23, 0.95);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+  z-index: 10;
+}
+.header-text h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+  text-align: left;
+}
+.header-text p {
+  margin: 0;
+  text-align: left;
+}
+.btn {
+	padding: 0.5rem 1rem;
+	border-radius: 0.375rem;
+	font-size: 0.875rem;
+	font-weight: 600;
+	cursor: pointer;
+	border: none;
+	transition: opacity 0.2s;
+}
+.btn:hover {
+	opacity: 0.8;
+}
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.btn-primary {
+	background-color: #fb923c;
+	color: #fff;
+}
+.btn-warning {
+	background-color: #f59e0b;
+	color: #fff;
+}
+.btn-danger {
+	background-color: #ef4444;
+	color: #fff;
+}
+.btn-success {
+	background-color: #10b981;
+	color: #fff;
+}
+.btn-ghost {
+	background-color: transparent;
+	border: 1px solid #334155;
+	color: #cbd5e1;
+}
+</style>
+
 <style scoped>
-/* --- Base Layout & Variables --- */
+/* --- App Layout Styles --- */
 :root {
 	--bg-dark: #020617;
 	--bg-panel: #0f172a;
@@ -370,11 +761,9 @@
 	--text-main: #f8fafc;
 	--text-muted: #94a3b8;
 }
-
 .text-left {
 	text-align: left;
 }
-
 .app-container {
 	display: flex;
 	height: 100vh;
@@ -385,14 +774,13 @@
 	overflow: hidden;
 }
 
-/* --- Left Panel --- */
 .left-panel {
 	width: 40%;
 	height: 100%;
 	display: flex;
 	flex-direction: column;
 	justify-content: space-between;
-	padding: 3rem;
+	padding: 3vh;
 	border-right: 1px solid var(--border-color);
 	background: linear-gradient(to bottom, #0f172a, #020617);
 	box-sizing: border-box;
@@ -401,29 +789,23 @@
 .left-panel * {
 	user-select: none !important;
 }
-
 .panel-content {
 	display: flex;
 	flex-direction: column;
-	gap: 2rem;
-}
-
-.view-container {
-	display: flex;
-	flex-direction: column;
-	height: 100%;
-	width: 100%;
+	gap: 1rem;
+	max-height: 25vh;
 }
 
 .banner-wrapper {
 	overflow: hidden;
-	border-radius: 0.75rem;
-	border: 1px solid rgba(51, 65, 85, 0.5);
 }
 .banner-image {
-	width: 100%;
+	height: 100%;
+	max-width: 100%;
 	aspect-ratio: 460 / 215;
-	object-fit: cover;
+	object-fit: contain;
+	border-radius: 1rem;
+	border: 1px solid rgba(51, 65, 85, 0.5);
 }
 .game-title {
 	font-size: 2rem;
@@ -435,74 +817,6 @@
 	background: linear-gradient(to right, #fb923c, #f59e0b);
 	background-clip: text;
 	color: transparent;
-}
-.game-description {
-	color: var(--text-muted);
-	line-height: 1.6;
-	font-size: 0.875rem;
-	margin: 0;
-}
-
-.map-container {
-	flex: 1;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 100%;
-	position: relative;
-	overflow: hidden;
-	border-top: 1px solid #1e293b;
-	border-bottom: 1px solid #1e293b;
-	background-color: #020617; /* Deep dark ocean */
-	cursor: grab;
-}
-.map-container:active {
-	cursor: grabbing;
-}
-.map-canvas {
-	display: block;
-	max-width: 100%;
-	max-height: 100%;
-	cursor: grab;
-	user-select: none;
-}
-.map-canvas:active {
-	cursor: grabbing;
-}
-
-/* --- Global Fixed Tooltip --- */
-.map-tooltip {
-	position: fixed;
-	z-index: 9999;
-	background: rgba(2, 6, 23, 0.95);
-	border: 1px solid #334155;
-	border-radius: 0.5rem;
-	padding: 0.75rem;
-	pointer-events: none; /* Crucial so it doesn't block the mouse hover */
-	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-	backdrop-filter: blur(4px);
-	min-width: 200px;
-}
-.map-tooltip h4 {
-	margin: 0 0 0.5rem 0;
-	color: #f8fafc;
-	font-size: 0.8rem;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	border-bottom: 1px solid #1e293b;
-	padding-bottom: 0.25rem;
-}
-.tooltip-ips {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-	font-family: monospace;
-	font-size: 0.75rem;
-}
-.tooltip-ips > div {
-	display: flex;
-	flex-direction: row;
-	justify-content: space-between;
 }
 
 .status-footer {
@@ -527,28 +841,13 @@
 	background-color: #10b981;
 }
 
-/* --- Right Panel --- */
 .right-panel {
 	width: 60%;
 	height: 100%;
 	display: flex;
 	flex-direction: column;
 }
-.panel-header {
-	padding: 1rem;
-	background-color: rgba(2, 6, 23, 0.95);
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	border-bottom: 1px solid var(--border-color);
-	z-index: 10;
-}
-.header-text h2 {
-	font-size: 1.25rem;
-	margin: 0;
-	margin-bottom: 0.5rem;
-	font-weight: 700;
-}
+
 .warning-text {
 	font-size: 0.75rem;
 	color: #f87171;
@@ -592,7 +891,6 @@
 	background: rgba(15, 23, 42, 0.5);
 }
 
-/* --- Action Bars --- */
 .action-bar {
 	display: flex;
 	align-items: center;
@@ -602,55 +900,11 @@
 	background-color: rgba(15, 23, 42, 0.4);
 	border-top: 1px solid var(--border-color);
 }
-/*.top-action-bar {
-}
-.bottom-action-bar {
-}*/
 .action-group {
 	display: flex;
 	gap: 1rem;
 }
 
-/* Buttons */
-.btn {
-	padding: 0.5rem 1rem;
-	border-radius: 0.375rem;
-	font-size: 0.875rem;
-	font-weight: 600;
-	cursor: pointer;
-	border: none;
-	transition: opacity 0.2s;
-}
-.btn:hover {
-	opacity: 0.8;
-}
-.btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-.btn-primary {
-	background-color: #fb923c;
-	color: #fff;
-}
-.btn-warning {
-	background-color: #f59e0b;
-	color: #fff;
-}
-.btn-danger {
-	background-color: #ef4444;
-	color: #fff;
-}
-.btn-success {
-	background-color: #10b981;
-	color: #fff;
-}
-.btn-ghost {
-	background-color: transparent;
-	border: 1px solid #334155;
-	color: #cbd5e1;
-}
-
-/* --- Scrollable List --- */
 .scroll-container {
 	flex: 1;
 	overflow-y: auto;
@@ -673,7 +927,6 @@
 	border-radius: 10px;
 }
 
-/* Checkboxes */
 .ui-checkbox {
 	flex-shrink: 0;
 	appearance: none;
@@ -705,7 +958,6 @@
 	background-color: #020617;
 }
 
-/* Server Cards */
 .location-card {
 	border: 1px solid var(--border-color);
 	border-radius: 0.5rem;
@@ -753,18 +1005,6 @@
 	font-size: 0.875rem;
 	font-weight: 500;
 }
-.group-block-status {
-	font-size: 0.7rem;
-	color: #ef4444;
-	background: rgba(239, 68, 68, 0.1);
-	border: 1px solid rgba(239, 68, 68, 0.3);
-	padding: 2px 6px;
-	border-radius: 4px;
-	display: flex;
-	align-items: center;
-	font-weight: 600;
-	white-space: nowrap;
-}
 .location-status {
 	display: flex;
 	align-items: center;
@@ -783,6 +1023,7 @@
 	animation: mapHighlightPulse 1.5s ease-out;
 	border-color: #fb923c !important;
 }
+
 @keyframes mapHighlightPulse {
 	0% {
 		box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.4);
@@ -797,7 +1038,6 @@
 	}
 }
 
-/* Drawer */
 .relays-drawer {
 	border-top: 1px solid rgba(30, 41, 59, 0.4);
 	padding: 0.5rem 1rem;
@@ -825,12 +1065,7 @@
 	text-decoration: line-through;
 	color: #ef4444;
 }
-.lock-icon {
-	font-size: 0.7rem;
-	color: #ef4444;
-}
 
-/* Badges */
 .ping-badge {
 	font-family: monospace;
 	font-size: 0.75rem;
@@ -885,73 +1120,6 @@
 	gap: 0.25rem;
 }
 
-/* --- Settings Page Specifics --- */
-.settings-view {
-	background-color: rgba(2, 6, 23, 0.4);
-}
-.settings-content {
-	padding: 3rem 4rem;
-	display: flex;
-	flex-direction: column;
-	gap: 2rem;
-	max-width: 600px;
-}
-
-.form-group {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75rem;
-}
-.form-group label {
-	font-size: 0.875rem;
-	font-weight: 600;
-	color: #cbd5e1;
-}
-.helper-text {
-	font-size: 0.75rem;
-	color: #64748b;
-	margin: 0;
-}
-
-.ui-select,
-.ui-input {
-	background-color: #0f172a;
-	border: 1px solid #1e293b;
-	color: white;
-	padding: 0.75rem 1rem;
-	border-radius: 0.5rem;
-	font-size: 1rem;
-	width: 100%;
-	font-family: inherit;
-	transition: border-color 0.2s;
-}
-.ui-select:focus,
-.ui-input:focus {
-	outline: none;
-	border-color: #fb923c;
-}
-
-.save-btn {
-	margin-top: 1rem;
-	padding: 0.75rem;
-	font-size: 1rem;
-}
-
-.slide-down {
-	animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-@keyframes slideDown {
-	from {
-		opacity: 0;
-		transform: translateY(-10px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-/* --- Modals & Loaders --- */
 .state-container {
 	display: flex;
 	flex-direction: column;
@@ -968,6 +1136,7 @@
 	border-radius: 50%;
 	animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
 	to {
 		transform: rotate(360deg);
@@ -978,747 +1147,4 @@
 		opacity: 0.5;
 	}
 }
-
-.modal-overlay {
-	position: fixed;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.8);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: 50;
-}
-.modal-content {
-	background: #0f172a;
-	padding: 2rem;
-	border-radius: 0.5rem;
-	border: 1px solid #1e293b;
-	max-width: 400px;
-	text-align: center;
-}
-.modal-content h3 {
-	margin: 0 0 1rem 0;
-	color: #f87171;
-}
-.modal-content p {
-	font-size: 0.875rem;
-	color: #94a3b8;
-	margin-bottom: 2rem;
-}
-.modal-actions {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75rem;
-}
 </style>
-
-<script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
-import * as d3 from 'd3';
-
-// Constants
-const MAX_PING = 9999;
-
-// --- TypeScript Interfaces ---
-interface Relay {
-	ipv4: string;
-	port_range: number[];
-	ping?: number;
-	selected: boolean;
-	blocked: boolean;
-}
-
-interface ProcessedLocation {
-	id: string;
-	description: string;
-	relays: Relay[];
-	avgPing: number;
-	isExpanded: boolean;
-	geo?: [number, number];
-}
-
-declare global {
-	interface Window {
-		electronAPI?: {
-			getAppDetails: (appId: string) => Promise<any>;
-			getSteamSDR: (appId: string) => Promise<any>;
-			ping: (ip: string) => Promise<number>;
-			checkAdmin: () => Promise<boolean>;
-			getBlockedIps: (appId: string) => Promise<string[]>;
-			syncFirewall: (ips: string[], elevate: boolean, appId: string) => Promise<boolean>;
-			relaunchElevated: () => Promise<void>;
-		};
-	}
-}
-
-const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker`;
-const getPendingActionName = () => `${BASE_FIREWALL_RULE_NAME}--PendingFwAction`;
-
-// --- State Variables ---
-const isElectron = 'electronAPI' in window;
-const currentView = ref<'dashboard' | 'settings'>('dashboard');
-const gameMeta = ref({
-	title: 'Loading...',
-	desc: 'Fetching application details from Steam...',
-	image: '',
-});
-const locations = ref<ProcessedLocation[]>([]);
-const isLoading = ref<boolean>(true);
-const isUpdatingPings = ref<boolean>(false);
-const isProcessingFirewall = ref<boolean>(false);
-const errorMessage = ref<string | null>(null);
-const searchQuery = ref<string>('');
-const isAdmin = ref<boolean>(false);
-const selectedGame = ref<string>('730');
-const customAppId = ref<string>('');
-const activeAppId = computed(() =>
-	selectedGame.value === 'custom' ? customAppId.value : selectedGame.value,
-);
-// --- Map State Variables ---
-const geoFeatures = ref<any[]>([]);
-const mapCanvas = ref<HTMLCanvasElement | null>(null);
-const hoveredLoc = ref<ProcessedLocation | null>(null);
-const tooltipPos = ref({ x: 0, y: 0 });
-const zoomScale = ref<number>(1);
-const targetZoom = ref<number>(1);
-const currentZoom = ref<number>(1);
-const targetRotation = ref<[number, number]>([0, 0]);
-const currentRotation = ref<[number, number]>([0, 0]);
-const highlightedLocId = ref<string | null>(null);
-const isDragging = ref(false);
-
-const isSettingsOpen = computed(() => currentView.value === 'settings');
-const filteredLocations = computed(() => {
-	if (!searchQuery.value)
-		return locations.value.filter((loc) => [`bom2`, `maa2`, `sgp`, `mad`, `ctut`].includes(loc.id));
-	const lowerQ = searchQuery.value.toLowerCase();
-
-	return locations.value.filter(
-		(loc) =>
-			loc.id.toLowerCase().includes(lowerQ) ||
-			loc.description.toLowerCase().includes(lowerQ) ||
-			loc.relays.some((r) => r.ipv4.includes(lowerQ)),
-	);
-});
-const hasAnySelected = computed(() =>
-	locations.value.some((l) => l.relays.some((r) => r.selected)),
-);
-const hasAnyUnblocked = computed(() =>
-	locations.value.some((l) => l.relays.some((r) => !r.blocked)),
-);
-const hasAnyBlocked = computed(() => locations.value.some((l) => l.relays.some((r) => r.blocked)));
-const hasSelectedUnblocked = computed(() =>
-	locations.value.some((l) => l.relays.some((r) => r.selected && !r.blocked)),
-);
-const hasSelectedBlocked = computed(() =>
-	locations.value.some((l) => l.relays.some((r) => r.selected && r.blocked)),
-);
-const areOperationsBlocked = computed(() => isLoading.value || isUpdatingPings.value);
-const isLocationAllIpsBlocked = computed(
-	() => (loc: ProcessedLocation) =>
-		isElectron && loc.relays.length > 0 && getBlockedCount(loc) === loc.relays.length,
-);
-const isLocationSomeIpsBlocked = computed(
-	() => (loc: ProcessedLocation) =>
-		isElectron && getBlockedCount(loc) > 0 && getBlockedCount(loc) < loc.relays.length,
-);
-const isMaxPing = computed(() => (ping: number) => ping === MAX_PING);
-
-// --- Modal State ---
-const adminModal = ref({
-	show: false,
-	newBlocked: [] as string[],
-});
-
-let fetchTimeout: number | null = null;
-const fetchGameMeta = async (appId: string) => {
-	if (!appId) return;
-
-	// Set temporary loading state
-	gameMeta.value = { title: `App ID: ${appId}`, desc: 'Fetching details...', image: '' };
-
-	try {
-		let data;
-		if (isElectron && window.electronAPI) {
-			data = await window.electronAPI.getAppDetails(appId);
-		} else {
-			const res = await fetch(`/api-store/api/appdetails?appids=${appId}`);
-			data = await res.json();
-		}
-
-		if (data && data[appId] && data[appId].success) {
-			const appData = data[appId].data;
-			gameMeta.value = {
-				title: appData.name,
-				desc: appData.short_description || 'No description available.',
-				image: appData.header_image,
-			};
-		} else {
-			gameMeta.value = {
-				title: `App ID: ${appId}`,
-				desc: 'Custom Application Network.',
-				image: '---INVALID---',
-			};
-		}
-	} catch (e) {
-		gameMeta.value = { title: `App ID: ${appId}`, desc: 'Failed to fetch details.', image: '' };
-	}
-};
-watch(
-	activeAppId,
-	(newId) => {
-		if (fetchTimeout) clearTimeout(fetchTimeout);
-		fetchTimeout = window.setTimeout(() => {
-			fetchGameMeta(newId);
-		}, 500);
-	},
-	{ immediate: true },
-);
-
-const width = 800;
-const height = 600;
-const initialScale = 260;
-const projection = d3
-	.geoOrthographic()
-	.scale(initialScale)
-	.translate([width / 2, height / 2]);
-const pathGenerator = d3.geoPath().projection(projection);
-const fetchMapData = async () => {
-	try {
-		const res = await fetch(
-			'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson',
-		);
-		const data = await res.json();
-		geoFeatures.value = data.features;
-	} catch (e) {
-		console.error('Failed to load map geometry', e);
-	}
-};
-const drawMap = () => {
-	const canvas = mapCanvas.value;
-	if (!canvas) return;
-	if (canvas.clientWidth === 0) return;
-
-	const ctx = canvas.getContext('2d');
-	if (!ctx) return;
-
-	// Update cursor to pointer if hovering over a dot
-	if (hoveredLoc.value) {
-		canvas.style.cursor = 'pointer';
-	} else {
-		canvas.style.cursor = ''; // Fallback to CSS grab/grabbing
-	}
-
-	// Bind D3 path generator to our canvas
-	pathGenerator.context(ctx);
-	ctx.clearRect(0, 0, width, height);
-
-	// 1. Draw Holographic Ocean
-	ctx.beginPath();
-	pathGenerator({ type: 'Sphere' } as d3.GeoPermissibleObjects);
-	ctx.fillStyle = '#48cae466';
-	ctx.fill();
-	ctx.strokeStyle = '#7400b8';
-	ctx.lineWidth = 2;
-	ctx.stroke();
-
-	// Add atmospheric outer glow
-	ctx.shadowBlur = 40;
-	ctx.shadowColor = '#48cae4';
-	ctx.strokeStyle = '#02c39a';
-	ctx.lineWidth = 2;
-	ctx.stroke();
-	ctx.stroke();
-	ctx.stroke();
-	ctx.stroke();
-	// Reset shadow so it doesn't bleed into the countries
-	ctx.shadowBlur = 0;
-
-	// 2. Draw Countries
-	ctx.beginPath();
-	geoFeatures.value.forEach((f) => pathGenerator(f));
-	ctx.fillStyle = '#020617';
-	ctx.fill();
-	ctx.strokeStyle = '#1e293b';
-	ctx.lineWidth = 1;
-	ctx.stroke();
-
-	// 3. Draw Server Nodes (Front Half Only)
-	const center = projection.invert!([width / 2, height / 2]);
-	if (!center) return;
-
-	locations.value.forEach((loc) => {
-		if (!loc.geo) return;
-		const lat = loc.geo[1];
-		const lon = loc.geo[0];
-
-		// Hide if on the back of the globe
-		if (d3.geoDistance([lon, lat], center) > Math.PI / 2) return;
-
-		const proj = projection([lon, lat]);
-		if (!proj) return;
-
-		const isHovered = hoveredLoc.value?.id === loc.id;
-		// Scale node size based on zoom (doubled for retina canvas)
-		const radius = isHovered ? 10 : 5;
-
-		ctx.beginPath();
-		ctx.arc(proj[0], proj[1], radius, 0, 2 * Math.PI);
-		ctx.fillStyle = getPingColorHex(loc.avgPing);
-
-		// Canvas Glow Effect
-		ctx.shadowBlur = 15;
-		ctx.shadowColor = 'red';
-		ctx.fill();
-
-		// Reset shadow for borders
-		ctx.shadowBlur = 0;
-		ctx.strokeStyle = '#FFFFFF';
-		ctx.lineWidth = 1;
-		ctx.stroke();
-	});
-};
-
-const handleMapMouseMove = (event: MouseEvent) => {
-	const canvas = mapCanvas.value;
-	if (!canvas) return;
-
-	// Calculate exact internal canvas coordinates
-	const rect = canvas.getBoundingClientRect();
-	const scaleX = width / rect.width;
-	const scaleY = height / rect.height;
-	const mouseX = (event.clientX - rect.left) * scaleX;
-	const mouseY = (event.clientY - rect.top) * scaleY;
-
-	let foundLoc = null;
-	const center = projection.invert!([width / 2, height / 2]);
-
-	if (center) {
-		for (const loc of locations.value) {
-			if (!loc.geo) continue;
-			const lat = loc.geo[1];
-			const lon = loc.geo[0];
-
-			if (d3.geoDistance([lon, lat], center) > Math.PI / 2) continue;
-			const proj = projection([lon, lat]);
-			if (!proj) continue;
-
-			// Calculate distance between mouse and node
-			const dx = mouseX - proj[0];
-			const dy = mouseY - proj[1];
-			if (Math.sqrt(dx * dx + dy * dy) < 20) {
-				// FIXED: Increased to 20px hit radius for easier hovering
-				foundLoc = loc;
-				break;
-			}
-		}
-	}
-
-	// Update UI state (Render loop will automatically catch this)
-	if (foundLoc) {
-		if (hoveredLoc.value?.id !== foundLoc.id) {
-			hoveredLoc.value = foundLoc;
-		}
-		tooltipPos.value = { x: event.clientX + 15, y: event.clientY + 15 };
-	} else if (hoveredLoc.value) {
-		hoveredLoc.value = null;
-	}
-};
-
-const handleMapMouseLeave = () => {
-	hoveredLoc.value = null;
-};
-
-const handleMapClick = () => {
-	if (hoveredLoc.value) goToLocation(hoveredLoc.value.id);
-};
-
-const getPingColorHex = (ping: number) => {
-	if (ping === 999 || !ping) return '#ef4444'; // Red (Blocked / Testing)
-	if (ping <= 50) return '#10b981'; // Green
-	if (ping <= 100) return '#eab308'; // Yellow
-	if (ping <= 200) return '#f97316'; // Orange
-	return '#ef4444'; // Red
-};
-
-const goToLocation = (locId: string) => {
-	const el = document.getElementById(`loc-card-${locId}`);
-	if (el) {
-		el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-		(el.querySelector(`.location-toggle`) as any)?.click();
-	}
-
-	highlightedLocId.value = locId;
-	setTimeout(() => {
-		if (highlightedLocId.value === locId) {
-			highlightedLocId.value = null;
-		}
-	}, 1500);
-};
-
-const pingServer = async (ip: string): Promise<number> => {
-	try {
-		if (isElectron && window.electronAPI) {
-			return await window.electronAPI.ping(ip);
-		}
-		const response = await fetch(`/api-ping?ip=${ip}`);
-		const data = await response.json();
-		return data.alive && typeof data.time === 'number' ? Math.round(data.time) : MAX_PING;
-	} catch (err) {
-		return MAX_PING;
-	}
-};
-
-const refreshFirewallState = async () => {
-	if (!isElectron || !window.electronAPI) return;
-	const blockedIps = await window.electronAPI.getBlockedIps(activeAppId.value);
-
-	locations.value.forEach((loc) => {
-		loc.relays.forEach((relay) => {
-			relay.blocked = blockedIps.includes(relay.ipv4);
-		});
-	});
-};
-
-const triggerPings = async () => {
-	if (isUpdatingPings.value) return;
-
-	isUpdatingPings.value = true;
-
-	await Promise.all(
-		filteredLocations.value.map(async (loc) => {
-			let validSum = 0;
-			let validCount = 0;
-
-			const pingPromises = loc.relays.map(async (relay) => {
-				const latency = await pingServer(relay.ipv4);
-				relay.ping = latency;
-
-				if (!relay.blocked && latency !== MAX_PING) {
-					validSum += latency;
-					validCount++;
-				}
-			});
-
-			await Promise.all(pingPromises);
-
-			loc.avgPing = validCount > 0 ? Math.round(validSum / validCount) : MAX_PING;
-		}),
-	);
-
-	locations.value.sort((a, b) => a.avgPing - b.avgPing);
-	isUpdatingPings.value = false;
-};
-
-// --- Core Initialization ---
-const loadGameData = async () => {
-	try {
-		isLoading.value = true;
-		errorMessage.value = null;
-
-		let data;
-		if (isElectron && window.electronAPI) {
-			data = await window.electronAPI.getSteamSDR(activeAppId.value);
-		} else {
-			const response = await fetch(
-				`/api-steam/ISteamApps/GetSDRConfig/v1?appid=${activeAppId.value}`,
-			);
-			if (!response.ok) throw new Error('Failed to retrieve SDR Configuration.');
-			data = await response.json();
-		}
-
-		locations.value = Object.entries(data.pops)
-			.map(([key, value]: any) => ({
-				id: key,
-				description: value.desc,
-				relays: (value.relays || []).map((r: any) => ({
-					...r,
-					ping: undefined,
-					selected: false,
-					blocked: false,
-				})),
-				avgPing: 0,
-				isExpanded: false,
-				geo: value.geo,
-			}))
-			.filter((loc) => loc.relays.length > 0);
-
-		if (isElectron) await refreshFirewallState();
-
-		isLoading.value = false;
-		await triggerPings();
-	} catch (err: any) {
-		errorMessage.value = err.message || 'An unexpected error occurred.';
-		isLoading.value = false;
-	}
-};
-
-// --- Settings Logic ---
-const loadSettings = () => {
-	const saved = localStorage.getItem('sdr_settings');
-	if (saved) {
-		const parsed = JSON.parse(saved);
-		selectedGame.value = parsed.selectedGame || '730';
-		customAppId.value = parsed.customAppId || '';
-	} else {
-		// strict reset if nothing has ever been saved
-		selectedGame.value = '730';
-		customAppId.value = '';
-	}
-};
-
-const saveAndApplySettings = async () => {
-	if (selectedGame.value === 'custom') {
-		const num = parseInt(customAppId.value, 10);
-		if (isNaN(num) || num <= 0) {
-			alert('App ID must be a valid positive number.');
-			return;
-		}
-		customAppId.value = num.toString(); // Sanitize
-	}
-
-	localStorage.setItem(
-		'sdr_settings',
-		JSON.stringify({
-			selectedGame: selectedGame.value,
-			customAppId: customAppId.value,
-		}),
-	);
-
-	currentView.value = 'dashboard';
-	await loadGameData();
-};
-
-const getPingColorClass = (ping: number): string => {
-	if (ping <= 50) return 'ping-excellent';
-	if (ping <= 100) return 'ping-good';
-	if (ping <= 200) return 'ping-fair';
-	if (ping <= 300) return 'ping-poor';
-	return 'ping-bad';
-};
-
-const getBlockedCount = (loc: ProcessedLocation) => {
-	return loc.relays.filter((r) => r.blocked).length;
-};
-
-const setupMap = () => {
-	// Connect D3 Zoom/Drag to our Canvas Globe
-	if (mapCanvas.value) {
-		let lastX = 0;
-		let lastY = 0;
-
-		const zoom = d3
-			.zoom<HTMLCanvasElement, unknown>()
-			.scaleExtent([1, 8])
-			.on('start', (event) => {
-				isDragging.value = true;
-				lastX = event.transform.x;
-				lastY = event.transform.y;
-			})
-			.on('zoom', (event) => {
-				// Set the TARGET zoom, we will animate to it in the render loop
-				targetZoom.value = event.transform.k;
-
-				if (event.sourceEvent) {
-					if (event.sourceEvent.type === 'wheel') {
-						// FIXED: Map the CSS mouse coordinates to the internal Canvas coordinates before inverting to prevent math corruption
-						const rect = mapCanvas.value!.getBoundingClientRect();
-						const scaleX = width / rect.width;
-						const scaleY = height / rect.height;
-						const cssMouse = d3.pointer(event.sourceEvent, mapCanvas.value);
-						const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [
-							number,
-							number,
-						];
-
-						const geoPos = projection.invert!(internalMousePos);
-
-						// If hovering over the globe and zooming IN
-						if (geoPos && event.transform.k > currentZoom.value) {
-							const targetLon = -geoPos[0];
-							const targetLat = -geoPos[1];
-
-							// Nudge the target rotation towards the mouse's geographic coordinate
-							targetRotation.value[0] += (targetLon - targetRotation.value[0]) * 0.2;
-							targetRotation.value[1] += (targetLat - targetRotation.value[1]) * 0.2;
-						}
-					} else {
-						// When dragging, manually rotate based on mouse movement
-						// Divide sensitivity by current zoom level so it slows down as you zoom in!
-						const dx = event.transform.x - lastX;
-						const dy = event.transform.y - lastY;
-						const sensitivity = 0.5 / currentZoom.value;
-
-						targetRotation.value[0] += dx * sensitivity;
-						targetRotation.value[1] -= dy * sensitivity;
-					}
-				}
-
-				// Clamp pitch to prevent the globe from flipping upside down
-				targetRotation.value[1] = Math.max(-90, Math.min(90, targetRotation.value[1]));
-
-				lastX = event.transform.x;
-				lastY = event.transform.y;
-			})
-			.on('end', () => {
-				isDragging.value = false;
-			});
-
-		d3.select(mapCanvas.value)
-			.call(zoom)
-			.on('dblclick.zoom', (event) => {
-				const rect = mapCanvas.value!.getBoundingClientRect();
-				const scaleX = width / rect.width;
-				const scaleY = height / rect.height;
-				const cssMouse = d3.pointer(event, mapCanvas.value);
-				const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [number, number];
-
-				const geoPos = projection.invert!(internalMousePos);
-
-				if (geoPos) {
-					const targetLon = -geoPos[0];
-					const targetLat = -geoPos[1];
-
-					// Center the rotation exactly on the double-clicked spot
-					targetRotation.value[0] = targetLon;
-					targetRotation.value[1] = targetLat;
-
-					// Programmatically step up the zoom by a factor of 2 (D3 limits clamp it automatically)
-					d3.select(mapCanvas.value!).transition().duration(0).call(zoom.scaleBy, 2);
-				}
-			});
-
-		// Unified 60fps Render Loop with LERP (Linear Interpolation)
-		d3.timer(() => {
-			if (!isDragging.value) {
-				// Slow down the ambient spin based on zoom level so it doesn't whip past!
-				targetRotation.value[0] += 0.05 / currentZoom.value;
-			}
-
-			// Smoothly animate current zoom towards target zoom
-			currentZoom.value += (targetZoom.value - currentZoom.value) * 0.15;
-			projection.scale(initialScale * currentZoom.value);
-			zoomScale.value = currentZoom.value;
-
-			// Smoothly animate current rotation towards target rotation
-			currentRotation.value[0] += (targetRotation.value[0] - currentRotation.value[0]) * 0.15;
-			currentRotation.value[1] += (targetRotation.value[1] - currentRotation.value[1]) * 0.15;
-			projection.rotate([currentRotation.value[0], currentRotation.value[1], 0]);
-
-			drawMap();
-		});
-	}
-};
-
-onMounted(async () => {
-	loadSettings();
-	fetchMapData();
-	setupMap();
-
-	if (isElectron && window.electronAPI) {
-		isAdmin.value = await window.electronAPI.checkAdmin();
-		const pendingStr = localStorage.getItem(getPendingActionName());
-		if (pendingStr && isAdmin.value) {
-			isProcessingFirewall.value = true;
-			const pending = JSON.parse(pendingStr);
-			await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
-			localStorage.removeItem(getPendingActionName());
-			isProcessingFirewall.value = false;
-		}
-	}
-	await loadGameData();
-});
-
-const toggleLocationExpand = (index: number) => {
-	locations.value[index].isExpanded = !locations.value[index].isExpanded;
-};
-
-const isGroupSelected = (loc: ProcessedLocation) => {
-	return loc.relays.length > 0 && loc.relays.every((r) => r.selected);
-};
-
-const toggleGroupSelection = (loc: ProcessedLocation, event: Event) => {
-	event.stopPropagation();
-	const targetState = !isGroupSelected(loc);
-	loc.relays.forEach((r) => (r.selected = targetState));
-};
-
-const toggleAll = (state: boolean) => {
-	locations.value.forEach((loc) => loc.relays.forEach((r) => (r.selected = state)));
-};
-
-const getTargetIps = (context: 'all' | 'selected', requirement: 'blocked' | 'unblocked') => {
-	const ips: string[] = [];
-	locations.value.forEach((loc) => {
-		loc.relays.forEach((r) => {
-			const matchContext = context === 'all' || r.selected;
-			const matchReq = requirement === 'blocked' ? r.blocked : !r.blocked;
-			if (matchContext && matchReq) ips.push(r.ipv4);
-		});
-	});
-	return ips;
-};
-
-const openSettings = () => {
-	currentView.value = 'settings';
-};
-
-const cancelSettings = () => {
-	loadSettings();
-	currentView.value = 'dashboard';
-};
-
-// --- Firewall Actions ---
-const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: string[]) => {
-	targetIps = JSON.parse(JSON.stringify(targetIps));
-	if (targetIps.length === 0) return;
-
-	// 1. Calculate the NEW master list of blocked IPs
-	const currentBlocked = getTargetIps('all', 'blocked');
-	let newBlocked = [...currentBlocked];
-
-	if (action === 'block') {
-		// Add new IPs and remove duplicates using a Set
-		newBlocked = [...new Set([...newBlocked, ...targetIps])];
-	} else {
-		// Filter out the IPs we want to unblock
-		newBlocked = newBlocked.filter((ip) => !targetIps.includes(ip));
-	}
-
-	if (isAdmin.value && window.electronAPI) {
-		isProcessingFirewall.value = true;
-		await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
-		await refreshFirewallState();
-		toggleAll(false);
-		isProcessingFirewall.value = false;
-		await triggerPings();
-	} else {
-		// Prompt the Elevation Modal with the computed master list
-		adminModal.value = { show: true, newBlocked };
-	}
-};
-
-const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel') => {
-	const { newBlocked } = JSON.parse(JSON.stringify(adminModal.value));
-	adminModal.value.show = false;
-
-	if (choice === 'cancel' || !window.electronAPI) return;
-
-	if (choice === 'restart') {
-		localStorage.setItem(
-			getPendingActionName(),
-			JSON.stringify({ ips: newBlocked, appId: activeAppId.value }),
-		);
-		await window.electronAPI.relaunchElevated();
-	}
-
-	if (choice === 'continue') {
-		isProcessingFirewall.value = true;
-		await window.electronAPI.syncFirewall(newBlocked, true, activeAppId.value);
-		await refreshFirewallState();
-		toggleAll(false);
-		isProcessingFirewall.value = false;
-		await triggerPings();
-	}
-};
-</script>
