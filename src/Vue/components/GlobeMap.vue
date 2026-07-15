@@ -1,5 +1,5 @@
 <template>
-	<div class="map-container" v-show="!isSettingsOpen">
+	<div class="map-container" ref="mapContainerWrapper" v-show="!isSettingsOpen">
 		<!-- <FPSCounter class="fps-counter"></FPSCounter> -->
 		<canvas
 			ref="mapCanvas"
@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import * as d3 from 'd3';
 import type { ProcessedLocation } from '../../types';
 
@@ -59,9 +59,12 @@ let targetRotation: [number, number] = [0, 0];
 let currentRotation: [number, number] = [0, 0];
 const isHoveringGlobe = ref(false);
 const isDragging = ref(false);
+let isAnimating = false;
+let resizeObserver: ResizeObserver | null = null;
+const mapContainerWrapper = ref<HTMLElement | null>(null);
 
-const width = 800;
-const height = 600;
+let width = 800;
+let height = 600;
 const initialScale = 260;
 const projection = d3
 	.geoOrthographic()
@@ -83,8 +86,7 @@ const fetchMapData = async () => {
 
 const drawMap = () => {
 	const canvas = mapCanvas.value;
-	if (!canvas) return;
-	if (canvas.clientWidth === 0) return;
+	if (!canvas || canvas.clientWidth === 0) return;
 
 	const ctx = canvas.getContext('2d');
 	if (!ctx) return;
@@ -100,36 +102,54 @@ const drawMap = () => {
 	pathGenerator.context(ctx);
 	ctx.clearRect(0, 0, width, height);
 
+	// 1. Draw Atmospheric Outer Glow
+	const cx = width / 2;
+	const cy = height / 2;
+	const currentRadius = initialScale * currentZoom;
+
+	const atmosGradient = ctx.createRadialGradient(
+		cx,
+		cy,
+		currentRadius * 0.95,
+		cx,
+		cy,
+		currentRadius * 1.15,
+	);
+	atmosGradient.addColorStop(0, '#00a6fb44');
+	atmosGradient.addColorStop(1, '#00a6fb00');
+
+	ctx.beginPath();
+	ctx.arc(cx, cy, currentRadius * 1.15, 0, 2 * Math.PI);
+	ctx.fillStyle = atmosGradient;
+	ctx.fill();
+
+	// 2. Draw Holographic Ocean
 	ctx.beginPath();
 	pathGenerator({ type: 'Sphere' } as d3.GeoPermissibleObjects);
-	ctx.fillStyle = '#48cae466';
+	ctx.fillStyle = '#1b9aaa77';
 	ctx.fill();
-	ctx.strokeStyle = '#03045e';
+	ctx.strokeStyle = '#00a6fb';
 	ctx.lineWidth = 2;
 	ctx.stroke();
 
-	ctx.shadowBlur = 40;
-	ctx.shadowColor = '#48cae4';
-	ctx.strokeStyle = '#02c39a';
-	ctx.lineWidth = 2;
-	ctx.stroke();
-	ctx.stroke();
-	ctx.stroke();
-	ctx.stroke();
-	ctx.shadowBlur = 0;
-
+	// 3. Draw Countries (VUE PROXY BYPASS)
 	ctx.beginPath();
-	geoFeatures.value.forEach((f) => pathGenerator(f));
+	const rawGeo = toRaw(geoFeatures.value);
+	rawGeo.forEach((f) => pathGenerator(f));
+
 	ctx.fillStyle = '#020617';
 	ctx.fill();
 	ctx.strokeStyle = '#1e293b';
 	ctx.lineWidth = 1;
 	ctx.stroke();
 
-	const center = projection.invert!([width / 2, height / 2]);
+	const center = projection.invert!([cx, cy]);
 	if (!center) return;
 
-	props.locations.forEach((loc) => {
+	// 4. Draw Server Nodes (VUE PROXY BYPASS)
+	const rawLocations = toRaw(props.locations);
+
+	rawLocations.forEach((loc) => {
 		if (!loc.geo) return;
 		const lat = loc.geo[1];
 		const lon = loc.geo[0];
@@ -141,20 +161,27 @@ const drawMap = () => {
 
 		const isHovered = hoveredLoc.value?.id === loc.id;
 		const radius = isHovered ? 10 : 5;
+		const baseColor = getPingColorHex(loc.avgPing);
 
+		// Glow
 		ctx.beginPath();
-		ctx.arc(proj[0], proj[1], radius, 0, 2 * Math.PI);
-		ctx.fillStyle = getPingColorHex(loc.avgPing);
-
-		ctx.shadowBlur = 15;
-		ctx.shadowColor = ctx.fillStyle;
+		ctx.arc(proj[0], proj[1], radius * 2, 0, 2 * Math.PI);
+		ctx.fillStyle = baseColor + '44';
 		ctx.fill();
 
-		ctx.shadowBlur = 0;
+		// Core Dot
+		ctx.beginPath();
+		ctx.arc(proj[0], proj[1], radius, 0, 2 * Math.PI);
+		ctx.fillStyle = baseColor;
+		ctx.fill();
+
+		// Border
 		ctx.strokeStyle = '#FFFFFF';
 		ctx.lineWidth = 1;
 		ctx.stroke();
 	});
+
+	ctx.globalCompositeOperation = 'source-over';
 };
 
 const handleMapMouseMove = (event: MouseEvent) => {
@@ -162,21 +189,21 @@ const handleMapMouseMove = (event: MouseEvent) => {
 	if (!canvas) return;
 
 	const rect = canvas.getBoundingClientRect();
-	const scaleX = width / rect.width;
-	const scaleY = height / rect.height;
-	const mouseX = (event.clientX - rect.left) * scaleX;
-	const mouseY = (event.clientY - rect.top) * scaleY;
+	const mouseX = event.clientX - rect.left;
+	const mouseY = event.clientY - rect.top;
 
 	// Calculate if mouse is physically inside the globe's radius
 	const dxGlobe = mouseX - width / 2;
 	const dyGlobe = mouseY - height / 2;
-	isHoveringGlobe.value = Math.sqrt(dxGlobe * dxGlobe + dyGlobe * dyGlobe) <= (initialScale * zoomScale.value);
+	isHoveringGlobe.value =
+		Math.sqrt(dxGlobe * dxGlobe + dyGlobe * dyGlobe) <= initialScale * currentZoom;
 
 	let foundLoc = null;
 	const center = projection.invert!([width / 2, height / 2]);
 
 	if (center) {
-		for (const loc of props.locations) {
+		const rawLocations = toRaw(props.locations);
+		for (const loc of rawLocations) {
 			if (!loc.geo) continue;
 			const lat = loc.geo[1];
 			const lon = loc.geo[0];
@@ -223,8 +250,43 @@ const getPingColorHex = (ping: number) => {
 	return '#ef4444';
 };
 
+const handleResize = (entries: ResizeObserverEntry[]) => {
+	for (let entry of entries) {
+		const newWidth = entry.contentRect.width;
+		const newHeight = entry.contentRect.height;
+
+		if (newWidth === 0 || newHeight === 0) continue;
+
+		width = newWidth;
+		height = newHeight;
+
+		// Re-center projection based on dynamic size
+		projection.translate([width / 2, height / 2]);
+
+		if (mapCanvas.value) {
+			// Handle High-DPI/Retina Displays
+			const dpr = window.devicePixelRatio || 1;
+			mapCanvas.value.width = width * dpr;
+			mapCanvas.value.height = height * dpr;
+			mapCanvas.value.style.width = `${width}px`;
+			mapCanvas.value.style.height = `${height}px`;
+
+			const ctx = mapCanvas.value.getContext('2d');
+			if (ctx) ctx.scale(dpr, dpr);
+		}
+
+		if (!isAnimating) drawMap(); // Draw immediately to prevent flicker on resize
+	}
+};
+
 const setupMap = () => {
 	if (mapCanvas.value) {
+		// Setup dynamic resizer
+		if (mapContainerWrapper.value) {
+			resizeObserver = new ResizeObserver(handleResize);
+			resizeObserver.observe(mapContainerWrapper.value);
+		}
+
 		let lastX = 0;
 		let lastY = 0;
 
@@ -241,15 +303,8 @@ const setupMap = () => {
 
 				if (event.sourceEvent) {
 					if (event.sourceEvent.type === 'wheel') {
-						const rect = mapCanvas.value!.getBoundingClientRect();
-						const scaleX = width / rect.width;
-						const scaleY = height / rect.height;
 						const cssMouse = d3.pointer(event.sourceEvent, mapCanvas.value);
-						const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [
-							number,
-							number,
-						];
-						const geoPos = projection.invert!(internalMousePos);
+						const geoPos = projection.invert!(cssMouse);
 
 						if (geoPos && event.transform.k > currentZoom) {
 							const targetLon = -geoPos[0];
@@ -277,22 +332,17 @@ const setupMap = () => {
 		d3.select(mapCanvas.value)
 			.call(zoom)
 			.on('dblclick.zoom', (event) => {
-				const rect = mapCanvas.value!.getBoundingClientRect();
-				const scaleX = width / rect.width;
-				const scaleY = height / rect.height;
 				const cssMouse = d3.pointer(event, mapCanvas.value);
-				const internalMousePos = [cssMouse[0] * scaleX, cssMouse[1] * scaleY] as [number, number];
-				const geoPos = projection.invert!(internalMousePos);
+				const geoPos = projection.invert!(cssMouse);
 
 				if (geoPos) {
-					const targetLon = -geoPos[0];
-					const targetLat = -geoPos[1];
-					targetRotation[0] = targetLon;
-					targetRotation[1] = targetLat;
+					targetRotation[0] = -geoPos[0];
+					targetRotation[1] = -geoPos[1];
 					d3.select(mapCanvas.value!).transition().duration(0).call(zoom.scaleBy, 2);
 				}
 			});
 
+		isAnimating = true;
 		d3.timer(() => {
 			if (!isDragging.value) {
 				targetRotation[0] += 0.05 / currentZoom;
@@ -312,15 +362,18 @@ onMounted(() => {
 	fetchMapData();
 	setupMap();
 });
+
+onBeforeUnmount(() => {
+	if (resizeObserver) resizeObserver.disconnect();
+	isAnimating = false;
+});
 </script>
 
 <style scoped>
 .map-container {
 	flex: 1;
-	display: flex;
-	align-items: center;
-	justify-content: center;
 	width: 100%;
+	height: 100%;
 	position: relative;
 	overflow: hidden;
 	border-top: 1px solid #1e293b;
@@ -334,9 +387,9 @@ onMounted(() => {
 }
 .map-canvas {
 	display: block;
-	max-width: 100%;
-	max-height: 100%;
-	aspect-ratio: 4 / 3;
+	width: 100%;
+	height: 100%;
+	outline: none;
 	user-select: none;
 }
 .map-tooltip {
