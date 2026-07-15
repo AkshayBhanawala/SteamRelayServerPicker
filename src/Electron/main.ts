@@ -13,11 +13,20 @@ logger.initialize();
 logger.info(`Application is starting up...`);
 logger.info(`app.isPackaged?:`, app.isPackaged);
 
+const __appPath = app.getAppPath();
+logger.log(`__appPath:`, __appPath);
+
+const __appIconPath = path.join(__appPath, 'public', 'icons', 'icon.ico');
+logger.log(`__appIconPath:`, __appIconPath);
+
 const __filename = fileURLToPath(import.meta.url);
 logger.log(`__filename:`, __filename);
 
 const __dirname = dirname(__filename);
 logger.log(`__dirname:`, __dirname);
+
+const __preloadFilePath = path.join(__dirname, 'preload.mjs');
+logger.log(`__preloadFilePath:`, __preloadFilePath);
 
 // Break the V-Sync lock
 app.commandLine.appendSwitch('disable-gpu-vsync');
@@ -46,8 +55,9 @@ const createWindow = () => {
 		minWidth: 900,
 		minHeight: 600,
 		backgroundColor: '#020617',
+		icon: __appIconPath,
 		webPreferences: {
-			preload: path.join(__dirname, 'preload.mjs'),
+			preload: __preloadFilePath,
 			contextIsolation: true,
 			nodeIntegration: false,
 			backgroundThrottling: false,

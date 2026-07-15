@@ -13,7 +13,8 @@
 	"scripts": {
 		"dev:web": "vite --mode web",
 		"dev:electron": "vite --mode electron",
-		"build": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts",
+		"build:web": "vue-tsc && vite build",
+		"build:electron": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts",
 		"preview": "vite preview"
 	},
 	"dependencies": {

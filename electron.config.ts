@@ -7,15 +7,18 @@ export const config: Configuration = {
 	directories: {
 		output: 'release',
 	},
-	files: ['dist/**/*', 'dist-electron/**/*'],
+	files: ['dist/**/*', 'public/**/*', 'dist-electron/**/*'],
 	win: {
 		target: ['portable'],
+		icon: "public/icons/icon.ico",
 	},
 	mac: {
 		target: ['dmg'],
+		icon: "public/icons/icon.icns",
 	},
 	linux: {
 		target: ['AppImage'],
+		icon: "public/icons/icon_256x256.png",
 	},
 };
 
