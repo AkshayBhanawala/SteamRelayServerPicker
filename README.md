@@ -92,7 +92,7 @@ You can download the latest compiled executables for your operating system from 
 3. Run `SteamRelayServerPicker.exe` file.
 4. **Usage:** You can use the app normally to view pings. If you wish to apply Firewall blocks, the app will automatically prompt you to restart with **Administrator Privileges**.
 
-### 🐧 Linux (Diagnostic Mode Only)
+### 🐧 Linux (Untested/Unverified, Diagnostic Mode Only)
 
 1. Download the `SteamRelayServerPicker-X.X.X-linux-x86_64.AppImage` file.
 2. Make it executable:
