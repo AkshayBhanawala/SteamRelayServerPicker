@@ -1,3 +1,24 @@
+<details>
+	<summary></summary>
+	CS2 Server Picker |
+	Deadlock Server Picker |
+	Marathon Server Picker |
+	Steam Relay Server Picker |
+	Steam Server Picker |
+	SDR Server Picker |
+	Steam Datagram Relay Network |
+	Matchmaking Region Blocker |
+	Ping Optimizer |
+	CS:GO Server Picker Alternative |
+	Block Steam Servers |
+	Electron |
+	Vue 3 |
+	D3.js |
+	3D Globe |
+</details>
+
+---
+
 # [Steam Relay Server Picker](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
 
 <p align="center">
@@ -6,18 +27,26 @@
 	</a>
 </p>
 
----
 
-### 🌐 [Try the Live Web Demo here!](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
+## 🌐 [Try the Live Web Demo here!](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
 
 _(Web demo is just for preview. The web demo runs in a restricted "Diagnostic Mode" using simulated pings due to browser CORS and network limitations. And It can not modify any firewall rules as well. Please download the full desktop app from **[GitHub Releases Page](https://github.com/AkshayBhanawala/SteamRelayServerPicker/releases/)** for full experience.)._
 
----
+
+## 🪧 [Windows Desktop App Demo](https://akshaybhanawala.github.io/SteamRelayServerPicker/videos/App-Windows-Demo.mp4)
+<p align="center">
+	<a href="https://akshaybhanawala.github.io/SteamRelayServerPicker/videos/App-Windows-Demo.mp4" target="_new">
+		<img src="./public/videos/App-Windows-Demo.gif" alt="App - Windows - Demo" />
+	</a>
+</p>
+
+
 ## 🌟 Overview
 
 Steam Relay Server Picker is an Electron-based desktop application designed to help competitive gamers monitor and control their connection to Steam's worldwide datagram relay infrastructure.
 
 It visualizes real-time pings on an interactive, fully rotatable 3D holographic globe and allows Windows users to selectively block routing to specific data centers, forcing game matchmaking to connect you to your preferred regions.
+
 
 ## ✨ Features
 
@@ -26,7 +55,6 @@ It visualizes real-time pings on an interactive, fully rotatable 3D holographic 
 * **✏️ Custom Steam AppID:** Allows to use custom steam App ID to manage it's servers.
 * **🌍 3D Holographic Globe:** Built with D3.js and Canvas, rendering global server nodes in real-time.
 
----
 
 ## 🎮 Supported Games & How It Works
 
@@ -36,13 +64,12 @@ Out of the box, the app includes quick-select profiles for popular games utilizi
 * **Deadlock** (App ID: `1422450`)
 * **Marathon** (App ID: `3065800`)
 
-**Want to play another game?**
+**Want to play another game?** \
 You can easily target other games! Simply select **"Custom App ID..."** in the settings menu and type in the Steam App ID of your desired game (e.g., `570` for Dota 2, `440` for Team Fortress 2). As long as the game officially uses the Steam Datagram Relay (SDR) protocol for its multiplayer routing, the app will successfully pull its server list.
 
-**Under the Hood (API):**
+**Under the Hood (API):** \
 To ensure server clusters and IPs are always accurate and up-to-date, this application directly queries the official Steam Web API endpoint: `ISteamApps/GetSDRConfig/v1`. This returns the live, dynamic network configuration, geographic coordinates, and relay IPv4 pools for the specified game.
 
----
 
 ## 💻 System Requirements & Testing Status
 
@@ -54,7 +81,6 @@ To ensure server clusters and IPs are always accurate and up-to-date, this appli
 
 *Note: While automated builds are generated for macOS and Linux,  Currently I've only tested the application on Windows 11. Mac and Linux builds are provided "as-is".*
 
----
 
 ## 📥 Downloads & Installation
 
@@ -86,7 +112,6 @@ You can download the latest compiled executables for your operating system from 
 ```
 3. Open the app. *(See Platform Limitations below).*
 
----
 
 ## ⚠️ Platform Limitations: Why Windows Gets "Admin" Controls
 
@@ -102,7 +127,6 @@ On macOS and Linux, managing the firewall programmatically is significantly more
 
 Rather than risk permanently damaging your operating system's network configuration, the macOS and Linux builds are gracefully limited to **Diagnostic Mode**. You can still use the beautiful 3D globe to measure and visualize your real-time latencies to global Steam servers, but automated IP blocking is exclusively available on Windows.
 
----
 
 ## 📸 Screenshots
 
@@ -143,8 +167,6 @@ Rather than risk permanently damaging your operating system's network configurat
 </p>
 
 
----
-
 ## 🛠️ Development & Building from Source
 
 This project uses **Vue 3**, **Vite**, **TypeScript**, **D3.js**, and **Electron**.
@@ -184,19 +206,10 @@ npm run build:electron
 # Build the Web-Only Static Demo (outputs to dist/ folder)
 npm run build:web
 ```
----
+
 
 ## ⚖️ Disclaimers & Privacy Policy
 
 **Branding Disclaimer:** The icon used in this application is derived from the official Steam application branding. This tool is a personal project inspired by other community projects and ideas, and is **not affiliated with, endorsed by, or sponsored by Valve Corporation.** Steam and the Steam logo are trademarks and/or registered trademarks of Valve Corporation in the U.S. and/or other countries.
 
 **Privacy Policy:** This application **does not collect any kind of data from the user, or execute any remote code on the system.** Read the entire privacy policy [HERE](https://akshaybhanawala.github.io/SteamRelayServerPicker/PrivacyPolicy.html).
-
----
-
-<br /><br /><br /><br /><br /><br /><br /><br /><br /><br /><br />
-
-<details>
-	<summary>Tags</summary>
-	Steam Server Picker, SDR Server Picker, CS2 Server Picker, Deadlock Server Picker, Steam Datagram Relay Network, Matchmaking Region Blocker, Ping Optimizer, CS:GO Server Picker Alternative, Block Steam Servers, Electron, Vue 3, D3.js 3D Globe.
-</details>
