@@ -87,17 +87,17 @@ You can download the latest compiled executables for your operating system from 
 
 ### 🪟 Windows (Fully Supported)
 
-1. Download the `SteamRelayServerPicker-Setup-1.0.0.exe` file.
-2. Run the installer.
-3. **Usage:** You can use the app normally to view pings. If you wish to apply Firewall blocks, the app will automatically prompt you to restart with **Administrator Privileges**.
+1. Download the `SteamRelayServerPicker-X.X.X-win-x64.zip` file.
+2. Extract wherever your heart desires.
+3. Run `SteamRelayServerPicker.exe` file.
+4. **Usage:** You can use the app normally to view pings. If you wish to apply Firewall blocks, the app will automatically prompt you to restart with **Administrator Privileges**.
 
 ### 🐧 Linux (Diagnostic Mode Only)
 
-1. Download the `SteamRelayServerPicker-1.0.0.AppImage` file.
+1. Download the `SteamRelayServerPicker-X.X.X-linux-x86_64.AppImage` file.
 2. Make it executable:
-
 ```bash
-   chmod +x SteamRelayServerPicker-1.0.0.AppImage
+chmod +x SteamRelayServerPicker-X.X.X-linux-x86_64.AppImage
 ```
 
 3. Run the AppImage. _(See Platform Limitations below)._
