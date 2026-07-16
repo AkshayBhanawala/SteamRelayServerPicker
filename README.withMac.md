@@ -1,14 +1,16 @@
 # [Steam Relay Server Picker](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
 
 <p align="center">
-<img src="./public/icons/icon_256x256.png" alt="App Icon" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/icons/icon_256x256.png">
+		<img src="./public/icons/icon_256x256.png" alt="App Icon" />
+	</a>
 </p>
 
 ---
 
 ### 🌐 [Try the Live Web Demo here!](https://akshaybhanawala.github.io/SteamRelayServerPicker/)
 
-*(This demo is just for show. The web demo runs in a restricted "Diagnostic Mode" using simulated pings due to browser CORS and network limitations. And It can not modify any firewall rules as well.).*
+_(Web demo is just for preview. The web demo runs in a restricted "Diagnostic Mode" using simulated pings due to browser CORS and network limitations. And It can not modify any firewall rules as well. Please download the full desktop app from **[GitHub Releases Page](https://github.com/AkshayBhanawala/SteamRelayServerPicker/releases/)** for full experience.)._
 
 ---
 ## 🌟 Overview
@@ -21,8 +23,8 @@ It visualizes real-time pings on an interactive, fully rotatable 3D holographic 
 
 * **📡 Live Ping Diagnostics:** Multithreaded ICMP pinging to map your actual latency to global Steam datacenters.
 * **🛡️ Windows Firewall Integration:** One-click blocking/unblocking of specific datacenters to avoid high-ping routing.
-* **🌍 3D Holographic Globe:** Built with D3.js and Canvas, rendering global server nodes in real-time.
 * **✏️ Custom Steam AppID:** Allows to use custom steam App ID to manage it's servers.
+* **🌍 3D Holographic Globe:** Built with D3.js and Canvas, rendering global server nodes in real-time.
 
 ---
 
@@ -105,25 +107,39 @@ Rather than risk permanently damaging your operating system's network configurat
 ## 📸 Screenshots
 
 <p align="center">
-<img src="./public/images/01.App-Windows-DownloadedFiles.png" alt="App - Downloaded Files" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/01.App-Windows-DownloadedFiles.png">
+		<img src="./public/images/01.App-Windows-DownloadedFiles.png" alt="App - Windows - Downloaded Files" />
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/02.App-Windows-Dashboard-Basic.png" alt="App - Dashboard - Basic" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/02.App-Windows-Dashboard-Basic.png">
+		<img src="./public/images/02.App-Windows-Dashboard-Basic.png" alt="App - Windows - Dashboard - Basic" />
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/03.App-Windows-Dashboard-MapDotHover.png" alt="App - Dashboard - Map Dot Hover" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/03.App-Windows-Dashboard-MapDotHover.png">
+		<img src="./public/images/03.App-Windows-Dashboard-MapDotHover.png" alt="App - Windows - Dashboard - Map Dot Hover" />
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/04.App-Windows-Dashboard-LocationFilter.png" alt="App - Dashboard - Location Filter" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/04.App-Windows-Dashboard-LocationFilter.png">
+		<img src="./public/images/04.App-Windows-Dashboard-LocationFilter.png" alt="App - Windows - Dashboard - Location Filter"/>
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/05.App-Windows-ApplyRuleFromNonAdminAppLaunch.png" alt="App - Apply Rule from Non Admin Window" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/05.App-Windows-ApplyRuleFromNonAdminAppLaunch.png">
+		<img src="./public/images/05.App-Windows-ApplyRuleFromNonAdminAppLaunch.png" alt="App - Windows - Apply Rule from Non Admin Window" />
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/06.App-Windows-DashboardWithBlockedLocation.png" alt="App - Dashboard with Blocked Location" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/06.App-Windows-DashboardWithBlockedLocation.png">
+		<img src="./public/images/06.App-Windows-DashboardWithBlockedLocation.png" alt="App - Windows - Dashboard with Blocked Location" />
+	</a>
 </p>
 <p align="center">
-<img src="./public/images/07.App-Windows-Settings.png" />
+	<a target="_new" href="https://akshaybhanawala.github.io/SteamRelayServerPicker/images/07.App-Windows-Settings.png">
+		<img src="./public/images/07.App-Windows-Settings.png" alt="App - Windows - Settings" />
+	</a>
 </p>
 
 
