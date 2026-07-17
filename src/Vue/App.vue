@@ -27,10 +27,10 @@
 
 			<div class="status-footer">
 				<span class="status-indicator">
-					<span class="pulse-dot" :class="{ 'pulse-dot-admin': isAdmin }"></span>
+					<span class="pulse-dot" :class="{ 'pulse-dot-admin': isAdminAccess }"></span>
 					{{
 						isElectron
-							? isAdmin
+							? isAdminAccess
 								? 'Admin Firewall Link Active'
 								: 'User Mode - Firewall Limited'
 							: 'Web Diagnostic Mode'
@@ -285,7 +285,21 @@
 				</div>
 			</div>
 
-			<!-- Abstracted Settings Component -->
+			<!-- Non-Admin Warn Modal Component -->
+			<NonAdminWarnModal
+				v-if="nonAdminWarnModal.show"
+				:osPlatform="osPlatform"
+				@choice="executeNonAdminWarnModalChoice"
+			/>
+
+			<!-- Non-Admin Action Modal Component -->
+			<NonAdminActionModal
+				v-if="nonAdminActionModal.show"
+				:osPlatform="osPlatform"
+				@choice="executeNonAdminActionModalChoice"
+			/>
+
+			<!-- Settings Component -->
 			<SettingsPanel
 				v-if="isSettingsOpen"
 				:selectedGame="selectedGame"
@@ -295,25 +309,19 @@
 				@cancel="cancelSettings"
 			/>
 		</div>
-
-		<!-- Abstracted Admin Modal Component -->
-		<AdminModal v-if="adminModal.show" @choice="executeAdminModalChoice" />
 	</div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
+import { BASE_APP_FILE_PREFIX, isMaxPing, isOsWindows, MAX_PING } from './utils/Common.util';
+import { GET_MOCK_GAME_META_DATA, GET_MOCK_SDR_DATA, GET_RANDOM_PING } from './utils/MockData.util';
+import type { ProcessedLocation } from '../types';
 import GlobeMap from './components/GlobeMap.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
-import AdminModal from './components/AdminModal.vue';
-import { BASE_APP_FILE_PREFIX, isMaxPing, MAX_PING } from './utils/Common.util';
-import type { ProcessedLocation } from '../types';
-import {
-	GET_MOCK_GAME_META_DATA,
-	GET_MOCK_SDR_DATA,
-	GET_RANDOM_PING,
-} from './utils/MockData.util';
+import NonAdminActionModal from './components/NonAdminActionModal.vue';
+import NonAdminWarnModal from './components/NonAdminWarnModal.vue';
 
 // --- Environment Flags ---
 const appVersion = import.meta.env.APP_VERSION;
@@ -338,17 +346,19 @@ const isUpdatingPings = ref<boolean>(false);
 const isProcessingFirewall = ref<boolean>(false);
 const errorMessage = ref<string | null>(null);
 const searchQuery = ref<string>('');
-const isAdmin = ref<boolean>(false);
+const osPlatform = ref<NodeJS.Platform>('win32');
+const isAdminAccess = ref<boolean>(false);
 const selectedGame = ref<string>('730');
 const customAppId = ref<string>('');
 const activeAppId = computed(() =>
 	selectedGame.value === 'custom' ? customAppId.value : selectedGame.value,
 );
 const highlightedLocId = ref<string | null>(null);
-const adminModal = ref({
+const nonAdminActionModal = ref({
 	show: false,
 	newBlocked: [] as string[],
 });
+const nonAdminWarnModal = ref({ show: false });
 
 // --- Computed State ---
 const isSettingsOpen = computed(() => currentView.value === 'settings');
@@ -660,7 +670,7 @@ const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: str
 		newBlocked = newBlocked.filter((ip) => !targetIps.includes(ip));
 	}
 
-	if (isAdmin.value && window.electronAPI) {
+	if (isAdminAccess.value && window.electronAPI) {
 		isProcessingFirewall.value = true;
 		await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
 		await refreshFirewallState();
@@ -668,13 +678,26 @@ const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: str
 		isProcessingFirewall.value = false;
 		await triggerPings();
 	} else {
-		adminModal.value = { show: true, newBlocked };
+		nonAdminActionModal.value = { show: true, newBlocked };
 	}
 };
 
-const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel') => {
-	const { newBlocked } = JSON.parse(JSON.stringify(adminModal.value));
-	adminModal.value.show = false;
+const executeNonAdminWarnModalChoice = async (choice: 'continue' | 'cancel') => {
+	nonAdminWarnModal.value.show = false;
+
+	if (choice === 'cancel' && window.electronAPI) {
+		window.electronAPI.quitApp();
+		return;
+	}
+
+	if (choice === 'continue') {
+		setTimeout(() => loadGameData(), 100);
+	}
+};
+
+const executeNonAdminActionModalChoice = async (choice: 'restart' | 'continue' | 'cancel') => {
+	const { newBlocked } = JSON.parse(JSON.stringify(nonAdminActionModal.value));
+	nonAdminActionModal.value.show = false;
 
 	if (choice === 'cancel' || !window.electronAPI) return;
 
@@ -684,6 +707,7 @@ const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel'
 			JSON.stringify({ ips: newBlocked, appId: activeAppId.value }),
 		);
 		await window.electronAPI.relaunchElevated();
+		return;
 	}
 
 	if (choice === 'continue') {
@@ -693,22 +717,30 @@ const executeAdminModalChoice = async (choice: 'restart' | 'continue' | 'cancel'
 		toggleAll(false);
 		isProcessingFirewall.value = false;
 		await triggerPings();
+		return;
 	}
 };
 
 onMounted(async () => {
-	loadSettings();
 	if (isElectron && window.electronAPI) {
-		isAdmin.value = await window.electronAPI.checkAdmin();
-		const pendingStr = localStorage.getItem(getPendingActionName());
-		if (pendingStr && isAdmin.value) {
-			isProcessingFirewall.value = true;
-			const pending = JSON.parse(pendingStr);
-			await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
-			localStorage.removeItem(getPendingActionName());
-			isProcessingFirewall.value = false;
+		// osPlatform.value = await window.electronAPI.getOsPlatform();
+		osPlatform.value = 'darwin';
+		isAdminAccess.value = await window.electronAPI.checkAdminAccess();
+		if (isOsWindows(osPlatform.value)) {
+			const pendingStr = localStorage.getItem(getPendingActionName());
+			if (pendingStr && isAdminAccess.value) {
+				isProcessingFirewall.value = true;
+				const pending = JSON.parse(pendingStr);
+				await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
+				localStorage.removeItem(getPendingActionName());
+				isProcessingFirewall.value = false;
+			}
+		} else if (!isAdminAccess.value) {
+			nonAdminWarnModal.value.show = true;
+			return;
 		}
 	}
+	loadSettings();
 	setTimeout(() => loadGameData(), 1000);
 });
 </script>

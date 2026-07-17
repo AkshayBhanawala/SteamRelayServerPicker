@@ -19,7 +19,7 @@
 		"build:electron:win": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --win",
 		"build:electron:linux": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --linux",
 		"build:electron:mac": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --mac",
-		"build:electron:all": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --win --linux",
+		"build:electron:all": "vue-tsc && vite build --mode electron && electron-builder --config electron.config.ts --win --linux --mac",
 		"deploy:web": "npx http-server ./dist --port 5174",
 		"preview": "vite preview"
 	},

@@ -1,65 +1,72 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
-import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import ping from 'ping';
 import { exec } from 'child_process';
+import { installIpcLogger } from 'electron-ipc-logger';
+import { isOsMac } from '../Vue/utils/Common.util';
+import path, { dirname } from 'path';
 import sudo from '@vscode/sudo-prompt';
+import ping from 'ping';
 import fs from 'fs';
 import os from 'os';
-import { installIpcLogger } from 'electron-ipc-logger';
 import logger from 'electron-log/main';
 
-const __exePath = app.getPath('exe');
-const __exeDir = path.dirname(__exePath);
-const __appAsarPath = app.getAppPath();
+const osPlatform = os.platform();
 
-let __fileStorageBasePath = '';
-if (app.isPackaged) {
-	__fileStorageBasePath = __exeDir;
-} else {
-	__fileStorageBasePath = path.join(__appAsarPath, 'release'); ;
-}
-logger.transports.file.resolvePathFn = (variables) => {
-	return path.join(__fileStorageBasePath, 'logs', variables.fileName || 'main.log');
-};
+const appName = `SteamRelayServerPicker`;
+
+const __exePath = app.getPath('exe');
+const __exeDir = isOsMac(osPlatform) ? path.join(path.dirname(__exePath), '../../../../') : path.dirname(__exePath);
+const __appAsarPath = app.getAppPath();
+const __appDataPath = app.getPath('appData');
+const __documentsPath = app.getPath('documents');
+const __fileStorageBasePath = path.join(__documentsPath, appName);
+const __loggerFilePath = path.join(__fileStorageBasePath, 'logs', 'main.log');
+
+logger.transports.file.resolvePathFn = () => __loggerFilePath;
+logger.transports.file.maxSize = 1 * 1024 * 1024; // 1 MB
 
 logger.initialize();
 logger.info(`Application is starting up...`);
+logger.info(`osPlatform:`, osPlatform);
 logger.info(`app.isPackaged?:`, app.isPackaged);
 
-logger.log(`__exePath:`, __exePath);
-logger.log(`__exeDir:`, __exeDir);
-logger.log(`__appAsarPath:`, __appAsarPath);
-logger.log(`__fileStorageBasePath:`, __fileStorageBasePath);
+logger.info(`__exePath:`, __exePath);
+logger.info(`__exeDir:`, __exeDir);
+logger.info(`__appAsarPath:`, __appAsarPath);
+logger.info(`__appDataPath:`, __appDataPath);
+logger.info(`__fileStorageBasePath:`, __fileStorageBasePath);
+logger.info(`__loggerFilePath:`, __loggerFilePath);
 
 const __appIconPath = path.join(__appAsarPath, 'public', 'icons', 'icon.ico');
-logger.log(`__appIconPath:`, __appIconPath);
+logger.info(`__appIconPath:`, __appIconPath);
 
 const __entrypointFile = fileURLToPath(import.meta.url);
-logger.log(`__entrypointFile:`, __entrypointFile);
+logger.info(`__entrypointFile:`, __entrypointFile);
 
 const __entrypointDir = dirname(__entrypointFile);
-logger.log(`__entrypointDir:`, __entrypointDir);
+logger.info(`__entrypointDir:`, __entrypointDir);
 
 const __preloadFilePath = path.join(__entrypointDir, 'preload.mjs');
-logger.log(`__preloadFilePath:`, __preloadFilePath);
+logger.info(`__preloadFilePath:`, __preloadFilePath);
 
-// Break the V-Sync lock
-app.commandLine.appendSwitch('disable-gpu-vsync');
-app.commandLine.appendSwitch('disable-frame-rate-limit');
+if (osPlatform !== 'darwin') {
+	// Break the V-Sync lock
+	app.commandLine.appendSwitch('disable-gpu-vsync');
+	app.commandLine.appendSwitch('disable-frame-rate-limit');
 
-// Prevent Windows from putting the app into 30fps "Efficiency Mode"
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-background-timer-throttling');
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+	// Prevent Windows from putting the app into 30fps "Efficiency Mode"
+	app.commandLine.appendSwitch('disable-renderer-backgrounding');
+	app.commandLine.appendSwitch('disable-background-timer-throttling');
+	app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
-// Other GPU Flags
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
+	// Other GPU Flags
+	app.commandLine.appendSwitch('ignore-gpu-blocklist');
+	app.commandLine.appendSwitch('enable-gpu-rasterization');
+	app.commandLine.appendSwitch('enable-zero-copy');
+}
 
 const BASE_CONFIG_SAVE_DIRECTORY = path.join(__fileStorageBasePath, 'config');
-const BASE_FIREWALL_RULE_NAME = `_SteamRelayServerPicker-SDRBlock--`;
+const BASE_FIREWALL_RULE_NAME = `_${appName}-SDRBlock--`;
 const getConfigFilePath = (appId: string) => path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${appId}.json`);
 const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
 
@@ -98,10 +105,43 @@ const createWindow = () => {
 	}
 };
 
-// Helper: Check if running as Admin in Windows
-const checkAdmin = (): Promise<boolean> => {
-	const os = process.platform;
-	if (os === 'win32') {
+app.whenReady().then(async () => {
+	if (app.isPackaged) {
+		// Remove the default menu
+		Menu.setApplicationMenu(null);
+	} else {
+		await installIpcLogger({ parent: mainWindow });
+	}
+
+	logger.info('GPU Feature Status:', app.getGPUFeatureStatus());
+
+	ipcMain.handle('get-os-platform', handle_GetOsPlatform);
+	ipcMain.handle('check-admin', handle_AppCheckAdminAccess);
+	ipcMain.handle('fetch-steam-app-info', handle_FetchSteamAppInfo);
+	ipcMain.handle('fetch-steam-app-sdr-config', handle_FetchSteamAppSdrConfig);
+	ipcMain.handle('ping-server', handle_PingServer);
+	ipcMain.handle('get-blocked-ips', handle_GetBlockedIps);
+	ipcMain.handle('sync-firewall', handle_SyncFirewall);
+	ipcMain.handle('relaunch-elevated', handle_RelaunchElevated);
+
+	createWindow();
+});
+
+app.on('window-all-closed', () => {
+	logger.info(`window-all-closed - Quitting app!`);
+	logger.info(`--------------------------------------------------------------------------------------------\r\n`);
+	app.quit();
+});
+
+
+async function handle_GetOsPlatform(): Promise<NodeJS.Platform> {
+	logger.info(`IPC handler for 'get-os-platform'`);
+	return osPlatform;
+};
+
+async function handle_AppCheckAdminAccess(): Promise<boolean> {
+	logger.info(`IPC handler for 'check-admin'`);
+	if (osPlatform === 'win32') {
 		return new Promise((resolve) => {
 			exec('net session', (err) => resolve(!err));
 		});
@@ -113,102 +153,76 @@ const checkAdmin = (): Promise<boolean> => {
 	}
 };
 
-const saveIpsLocally = (ips: string[], appId: string) => {
-	fs.writeFileSync(getConfigFilePath(appId), JSON.stringify(ips));
-};
+async function handle_FetchSteamAppInfo(_: Electron.IpcMainInvokeEvent, appId: string) {
+	logger.info(`IPC handler for 'fetch-steam-app-info'`);
+	const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`);
+	if (!response.ok) throw new Error(`Failed to fetch Store details for App ${appId}`);
+	return await response.json();
+}
 
-const runElevated = (command: string, name: string = 'Steam Relay Server Picker'): Promise<boolean> => {
-	return new Promise((resolve) => {
-		sudo.exec(command, { name }, (error) => {
-			if (error) {
-				logger.error(error);
-				resolve(false);
-			} else {
-				resolve(true);
-			}
-		});
-	});
-};
+async function handle_FetchSteamAppSdrConfig(_: Electron.IpcMainInvokeEvent, appId: string) {
+	logger.info(`IPC handler for 'fetch-steam-app-sdr-config'`);
+	const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${appId}`);
+	if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${appId}`);
+	return await response.json();
+}
 
-app.whenReady().then(async () => {
-	if (app.isPackaged) {
-		// Remove the default menu completely
-		Menu.setApplicationMenu(null);
-	} else {
-		await installIpcLogger({ parent: mainWindow });
+async function handle_PingServer(_: Electron.IpcMainInvokeEvent, ip: string) {
+	logger.info(`IPC handler for 'ping-server'`);
+	try {
+		const result = await ping.promise.probe(ip, { timeout: 2 });
+		return (result.alive && typeof result.time === 'number') ? Math.round(result.time) : 9999;
+	} catch {
+		return 9999;
 	}
-	console.log('GPU Feature Status:', app.getGPUFeatureStatus());
+}
 
-	ipcMain.handle('fetch-app-details', async (_, appId: string) => {
-		const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`);
-		if (!response.ok) throw new Error(`Failed to fetch Store details for App ${appId}`);
-		return await response.json();
-	});
+async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, appId: string) {
+	logger.info(`IPC handler for 'get-blocked-ips'`);
+	const ruleName = getRuleName(appId);
 
-	ipcMain.handle('fetch-steam-data', async (_, appId: string) => {
-		const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${appId}`);
-		if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${appId}`);
-		return await response.json();
-	});
+	if (osPlatform === 'win32') {
+		// WINDOWS: Query the OS Firewall directly (No admin required for reading)
+		return new Promise((resolve) => {
+			const psCommand = `$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
 
-	ipcMain.handle('ping-server', async (_, ip: string) => {
-		try {
-			const result = await ping.promise.probe(ip, { timeout: 2 });
-			return (result.alive && typeof result.time === 'number') ? Math.round(result.time) : 9999;
-		} catch {
-			return 9999;
-		}
-	});
+			exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout) => {
+				if (err || !stdout) return resolve([]);
 
-	ipcMain.handle('check-admin', async () => {
-		return await checkAdmin();
-	});
+				const ips = stdout.split('\n')
+					.map(line => line.trim())
+					.filter(line => line.length > 0);
 
-	ipcMain.handle('get-blocked-ips', async (_, appId: string) => {
-		const os = process.platform;
-		const ruleName = getRuleName(appId);
-
-		if (os === 'win32') {
-			// WINDOWS: Query the OS Firewall directly (No admin required for reading)
-			return new Promise((resolve) => {
-				const psCommand = `$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
-
-				exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout) => {
-					if (err || !stdout) return resolve([]);
-
-					const ips = stdout.split('\n')
-						.map(line => line.trim())
-						.filter(line => line.length > 0);
-
-					resolve(ips);
-				});
+				resolve(ips);
 			});
-		} else {
-			// MAC/LINUX: Read from the local state file to avoid sudo prompts on boot
-			const blockedIpsFilePath = getConfigFilePath(appId);
-			if (fs.existsSync(blockedIpsFilePath)) {
-				try {
-					const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
-					return JSON.parse(data);
-				} catch (e) {
-					logger.error("Failed to parse blocked IPs JSON:", e);
-					return [];
-				}
+		});
+	} else {
+		// MAC/LINUX: Read from the local state file to avoid sudo prompts on boot
+		const blockedIpsFilePath = getConfigFilePath(appId);
+		if (fs.existsSync(blockedIpsFilePath)) {
+			try {
+				const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
+				return JSON.parse(data);
+			} catch (e) {
+				logger.error("Failed to parse blocked IPs JSON:", e);
+				return [];
 			}
-			return []; // Return empty array if file doesn't exist yet
 		}
-	});
+		// Return empty array if file doesn't exist yet
+		return [];
+	}
+}
 
-	ipcMain.handle('sync-firewall', async (_, ips: string[], elevate: boolean, appId: string) => {
-		const osName = process.platform;
-		const ruleName = getRuleName(appId);
-		let success = false;
+async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[], elevate: boolean, appId: string) {
+	logger.info(`IPC handler for 'sync-firewall'`);
+	const ruleName = getRuleName(appId);
+	let success = false;
 
-		// --- WINDOWS (win32) ---
-		if (osName === 'win32') {
-			const tempScriptFileName = path.join(os.tmpdir(), `steam-relay-server-picker-fw-sync-${Date.now()}.ps1`);
-			const ipString = ips.map(ip => `'${ip}'`).join(',');
-			const psCommand = `
+	// --- WINDOWS (win32) ---
+	if (osPlatform === 'win32') {
+		const tempScriptFileName = path.join(os.tmpdir(), `steam-relay-server-picker-fw-sync-${Date.now()}.ps1`);
+		const ipString = ips.map(ip => `'${ip}'`).join(',');
+		const psCommand = `
 				$ips = @(${ipString});
 				$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
 				if ($ips.Count -eq 0) { if ($rule) { Remove-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue } }
@@ -221,96 +235,104 @@ app.whenReady().then(async () => {
 				}
 				Remove-Item -Path "${tempScriptFileName}" -Force
 			`;
-			fs.writeFileSync(tempScriptFileName, psCommand);
+		fs.writeFileSync(tempScriptFileName, psCommand);
 
-			if (elevate) {
-				// On Windows, sudo-prompt works, or you can stick to your Start-Process Verb RunAs script
-				success = await runElevated(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`);
-			} else {
-				// Run normally...
-				success = await new Promise((resolve) => exec(
-					`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`,
-					(err) => resolve(!err)
-				));
-			}
+		if (elevate) {
+			success = await runElevated(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`);
+		} else {
+			// Run normally...
+			success = await new Promise((resolve) => exec(
+				`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`,
+				(err) => resolve(!err)
+			));
 		}
+	}
 
-		// --- LINUX (linux) ---
-		else if (osName === 'linux') {
-			// Linux uses iptables. We flush our custom chain, then add the new IPs.
-			let bashCommand = `
+	// --- LINUX (linux) ---
+	else if (osPlatform === 'linux') {
+		// Linux uses iptables. Flush custom chain, then add the new IPs.
+		let bashCommand = `
 				iptables -F ${ruleName} 2>/dev/null || iptables -N ${ruleName};
 				iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
 				iptables -I OUTPUT -j ${ruleName};
 			`;
-			ips.forEach(ip => {
-				bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
-			});
+		ips.forEach(ip => {
+			bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
+		});
 
-			// Linux IPTables ALWAYS requires root
-			success = await runElevated(bashCommand);
-		}
+		// Linux IPTables ALWAYS requires root
+		success = await runElevated(bashCommand);
+	}
 
-		// --- macOS (darwin) ---
-		else if (osName === 'darwin') {
-			// macOS uses PF (Packet Filter). We write the blocked IPs to an anchor file and reload it.
-			const ipString = ips.map(ip => `"${ip}"`).join(', ');
-			const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
+	// --- macOS (darwin) ---
+	else if (osPlatform === 'darwin') {
+		// macOS uses PF (Packet Filter). Write the blocked IPs to an anchor file and reload it.
+		const ipString = ips.map(ip => `"${ip}"`).join(', ');
+		const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
 
-			const macCommand = `
+		const macCommand = `
 				echo '${anchorContent}' > /tmp/${ruleName}_pf_rule;
 				pfctl -a com.th3az.steam-relay-server-picker -f /tmp/${ruleName}_pf_rule;
 				pfctl -E;
 			`;
 
-			// Mac PF ALWAYS requires sudo
-			success = await runElevated(macCommand);
+		// Mac PF ALWAYS requires sudo
+		success = await runElevated(macCommand);
+	}
+
+	if (success) {
+		saveIpsLocally(ips, appId);
+	}
+
+	return success;
+}
+
+async function handle_RelaunchElevated() {
+	logger.info(`IPC handler for 'relaunch-elevated'`);
+
+	if (process.platform === 'win32') {
+		const exePath = process.execPath;
+		logger.info(`exePath:`, exePath);
+
+		const args = [...process.argv.slice(1)];
+		logger.info(`args:`, args);
+
+		const cwd = process.cwd();
+		logger.info(`cwd:`, cwd);
+
+		if (process.env.VITE_DEV_SERVER_URL && !args.some(a => a.startsWith('--dev-server-url='))) {
+			args.push(`--dev-server-url=${process.env.VITE_DEV_SERVER_URL}`);
+		}
+		let psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : '';
+		logger.info(`psArgs:`, psArgs);
+		if (psArgs) {
+			psArgs = `-ArgumentList '${psArgs}'`;
 		}
 
-		if (success) {
-			saveIpsLocally(ips, appId);
-		}
+		const psCmd = `powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' ${psArgs} -WorkingDirectory '${cwd}' -Verb RunAs"`;
+		logger.info(`psCmd:`, psCmd);
 
-		return success;
-	});
+		exec(psCmd);
+		app.quit();
+	} else {
+		// macOS/Linux: Do nothing, or log a warning. The UI shouldn't allow this to be clicked.
+		logger.warn("Relaunching as root is not supported or recommended on POSIX systems.");
+	}
+}
 
-	ipcMain.handle('relaunch-elevated', () => {
-		logger.info(`IPC handler for 'relaunch-elevated'`);
-		logger.info(`process.platform:`, process.platform);
+async function saveIpsLocally(ips: string[], appId: string) {
+	fs.writeFileSync(getConfigFilePath(appId), JSON.stringify(ips));
+};
 
-		if (process.platform === 'win32') {
-			const exePath = process.execPath;
-			logger.info(`exePath:`, exePath);
-
-			const args = [...process.argv.slice(1)];
-			logger.info(`args:`, args);
-
-			const cwd = process.cwd();
-			logger.info(`cwd:`, cwd);
-
-			if (process.env.VITE_DEV_SERVER_URL && !args.some(a => a.startsWith('--dev-server-url='))) {
-				args.push(`--dev-server-url=${process.env.VITE_DEV_SERVER_URL}`);
+async function runElevated(command: string, name: string = 'Steam Relay Server Picker'): Promise<boolean> {
+	return new Promise((resolve) => {
+		sudo.exec(command, { name }, (error) => {
+			if (error) {
+				logger.error(error);
+				resolve(false);
+			} else {
+				resolve(true);
 			}
-			let psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : '';
-			logger.info(`psArgs:`, psArgs);
-			if (psArgs) {
-				psArgs = `-ArgumentList '${psArgs}'`;
-			}
-
-			const psCmd = `powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' ${psArgs} -WorkingDirectory '${cwd}' -Verb RunAs"`;
-			logger.info(`psCmd:`, psCmd);
-
-			exec(psCmd);
-			app.quit();
-		} else {
-			// macOS/Linux: Do nothing, or log a warning. The UI shouldn't allow this to be clicked.
-			logger.warn("Relaunching as root is not supported or recommended on POSIX systems.");
-		}
+		});
 	});
-
-	createWindow();
-});
-
-app.on('window-all-closed', () => {
-	if (process.platform !== 'darwin') app.quit();
-});
+};

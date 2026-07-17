@@ -1,3 +1,19 @@
+declare global {
+	interface Window {
+		electronAPI?: {
+			getOsPlatform: () => Promise<NodeJS.Platform>;
+			checkAdminAccess: () => Promise<boolean>;
+			getAppDetails: (appId: string) => Promise<any>;
+			getSteamSDR: (appId: string) => Promise<any>;
+			ping: (ip: string) => Promise<number>;
+			getBlockedIps: (appId: string) => Promise<string[]>;
+			syncFirewall: (ips: string[], elevate: boolean, appId: string) => Promise<string[]>;
+			relaunchElevated: () => Promise<void>;
+			quitApp: () => Promise<void>;
+		};
+	}
+}
+
 export interface Relay {
 	ipv4: string;
 	port_range: number[];
@@ -13,18 +29,4 @@ export interface ProcessedLocation {
 	avgPing: number;
 	isExpanded: boolean;
 	geo?: [number, number];
-}
-
-declare global {
-	interface Window {
-		electronAPI?: {
-			getAppDetails: (appId: string) => Promise<any>;
-			getSteamSDR: (appId: string) => Promise<any>;
-			ping: (ip: string) => Promise<number>;
-			checkAdmin: () => Promise<boolean>;
-			getBlockedIps: (appId: string) => Promise<string[]>;
-			syncFirewall: (ips: string[], elevate: boolean, appId: string) => Promise<boolean>;
-			relaunchElevated: () => Promise<void>;
-		};
-	}
 }
