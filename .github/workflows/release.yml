@@ -18,7 +18,7 @@ jobs:
   # JOB 1: DEPLOY TO GITHUB PAGES
   # ==========================================
   deploy-pages:
-    name: Deploy Web Build to Pages
+    name: Deploy Web Build to GitHub Pages
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -59,8 +59,7 @@ jobs:
     name: Build Electron App
     strategy:
       matrix:
-        # Added macos-latest here!
-        # os: [windows-latest, ubuntu-latest, macos-latest]
+        #os: [windows-latest, ubuntu-latest, macos-latest]
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
 
