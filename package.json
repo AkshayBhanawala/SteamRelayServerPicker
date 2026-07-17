@@ -8,7 +8,7 @@
 		"gh-release-page": "https://github.com/AkshayBhanawala/SteamRelayServerPicker/releases/"
 	},
 	"private": true,
-	"version": "1.0.0",
+	"version": "1.0.1-alpha",
 	"type": "module",
 	"main": "dist-electron/main.js",
 	"scripts": {
