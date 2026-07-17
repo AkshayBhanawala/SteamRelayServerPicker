@@ -9,7 +9,11 @@
 				access to modify Network Firewall rules.
 			</p>
 			<div class="modal-actions">
-				<button v-if="isOsWindows(osPlatform)" class="btn btn-primary" @click="$emit('choice', 'restart')">
+				<button
+					v-if="isOsWindows(osPlatform)"
+					class="btn btn-primary"
+					@click="$emit('choice', 'restart')"
+				>
 					Restart App as Admin
 				</button>
 				<button class="btn btn-warning" @click="$emit('choice', 'continue')">
@@ -42,14 +46,15 @@ defineEmits<{
 	align-items: center;
 	justify-content: center;
 	z-index: 50;
-	backdrop-filter: blur(50px);
+	backdrop-filter: blur(5px);
 }
 .modal-content {
 	background: #0f172a;
 	padding: 2rem;
 	border-radius: 0.5rem;
 	border: 1px solid #1e293b;
-	max-width: 80vw;
+	min-width: 300px;
+	max-width: 70vw;
 	text-align: center;
 }
 .modal-content h3 {
@@ -63,7 +68,8 @@ defineEmits<{
 }
 .modal-actions {
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
+	justify-content: center;
 	gap: 0.75rem;
 }
 </style>

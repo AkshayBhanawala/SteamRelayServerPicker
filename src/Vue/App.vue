@@ -55,6 +55,12 @@
 						<p v-if="!isElectron" class="warning-text">
 							Management requires the Desktop application.
 						</p>
+						<br />
+						<p v-if="!isElectron" class="download-info-text">
+							<a target="_blank" href="https://github.com/AkshayBhanawala/SteamRelayServerPicker">
+								Download Desktop App
+							</a>
+						</p>
 					</div>
 
 					<div class="header-actions">
@@ -67,7 +73,12 @@
 							"
 							:disabled="areOperationsBlocked"
 						/>
-						<button class="settings-btn" @click="openSettings()" title="Settings">
+						<button
+							class="btn settings-btn"
+							@click="openSettings()"
+							title="Settings"
+							:disabled="areOperationsBlocked"
+						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								fill="none"
@@ -111,137 +122,140 @@
 					</div>
 					<button
 						class="btn btn-primary"
-						@click="triggerPings"
-						:disabled="isLoading || isUpdatingPings"
+						@click="doPingRefresh"
+						:disabled="isLoading || isRefreshingPings"
 					>
-						{{ isUpdatingPings ? 'Updating Pings...' : 'Refresh Pings' }}
+						{{ isRefreshingPings ? 'Refreshing Pings...' : 'Refresh Pings' }}
 					</button>
 				</div>
 
-				<div class="scroll-container">
-					<div v-if="isLoading || isProcessingFirewall" class="state-container">
-						<div class="spinner"></div>
-						<p class="pulse-text">
-							{{
-								isProcessingFirewall
-									? 'Configuring Windows Firewall...'
-									: 'Mapping worldwide infrastructure...'
-							}}
-						</p>
-					</div>
-
-					<div v-else-if="errorMessage" class="error-box">
-						<p class="error-title">Network Error</p>
-						<p class="error-text">{{ errorMessage }}</p>
-					</div>
-
-					<div
-						v-else
-						v-for="loc in filteredLocations"
-						:key="loc.id"
-						:id="'loc-card-' + loc.id"
-						class="location-card"
-						:class="{
-							'card-selected': isGroupSelected(loc),
-							'card-highlighted': highlightedLocId === loc.id,
-						}"
-					>
-						<div
-							:class="{
-								'location-toggle': true,
-								'ping-poor': isLocationSomeIpsBlocked(loc),
-								'ping-bad': isLocationAllIpsBlocked(loc),
-							}"
-							@click="toggleLocationExpand(locations.indexOf(loc))"
-						>
-							<div class="location-identity">
-								<input
-									v-if="isElectron"
-									type="checkbox"
-									class="ui-checkbox"
-									:checked="isGroupSelected(loc)"
-									@click="toggleGroupSelection(loc, $event)"
-									:disabled="isUpdatingPings"
-								/>
-								<span
-									:class="{
-										'loc-id': true,
-										'ping-poor': isLocationSomeIpsBlocked(loc),
-										'ping-bad': isLocationAllIpsBlocked(loc),
-									}"
-								>
-									{{ loc.id }}
-								</span>
-								<span class="loc-name">{{ loc.description }}</span>
-							</div>
-
-							<div class="location-status">
-								<span v-if="isLocationSomeIpsBlocked(loc)" class="ping-badge ping-partial-block">
-									🔒 {{ getBlockedCount(loc) }}/{{ loc.relays.length }} Blocked
-								</span>
-								<span v-if="isLocationAllIpsBlocked(loc)" class="ping-badge ping-blocked">
-									🔒 Blocked
-								</span>
-								<template v-else class="ping-badge">
-									<span v-if="!isLocationSomeIpsBlocked(loc)" class="ping-badge">
-										{{ loc.relays.length }} Relays
-									</span>
-									<span class="ping-badge" :class="getPingColorClass(loc.avgPing)">
-										{{
-											loc.avgPing
-												? isMaxPing(loc.avgPing)
-													? `Timeout`
-													: `${loc.avgPing} ms`
-												: 'Measuring...'
-										}}
-									</span>
-								</template>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2.5"
-									stroke="currentColor"
-									class="chevron-icon"
-									:class="{ rotated: loc.isExpanded }"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-									/>
-								</svg>
-							</div>
+				<div class="locations-wrapper">
+					<div class="scroll-container" :style="[isRefreshingPings ? { overflow: 'hidden' } : '']">
+						<div v-if="errorMessage" class="error-box">
+							<p class="error-title">Network Error</p>
+							<p class="error-text">{{ errorMessage }}</p>
 						</div>
 
-						<div v-show="loc.isExpanded" class="relays-drawer">
-							<div v-for="relay in loc.relays" :key="relay.ipv4" class="relay-row">
-								<div class="relay-details">
+						<div
+							v-for="loc in filteredLocations"
+							:key="loc.id"
+							:id="'loc-card-' + loc.id"
+							class="location-card"
+							:class="{
+								'card-selected': isGroupSelected(loc),
+								'card-highlighted': highlightedLocId === loc.id,
+							}"
+						>
+							<div
+								:class="{
+									'location-toggle': true,
+									'ping-poor': isLocationSomeIpsBlocked(loc),
+									'ping-bad': isLocationAllIpsBlocked(loc),
+								}"
+								@click="toggleLocationExpand(locations.indexOf(loc))"
+							>
+								<div class="location-identity">
 									<input
 										v-if="isElectron"
 										type="checkbox"
 										class="ui-checkbox"
-										v-model="relay.selected"
-										:disabled="areOperationsBlocked"
+										:checked="isGroupSelected(loc)"
+										@click="toggleGroupSelection(loc, $event)"
+										:disabled="isRefreshingPings"
 									/>
-									<span class="relay-ip" :class="{ 'text-blocked': relay.blocked }">{{
-										relay.ipv4
-									}}</span>
+									<span
+										:class="{
+											'loc-id': true,
+											'ping-poor': isLocationSomeIpsBlocked(loc),
+											'ping-bad': isLocationAllIpsBlocked(loc),
+										}"
+									>
+										{{ loc.id }}
+									</span>
+									<span class="loc-name">{{ loc.description }}</span>
 								</div>
-								<span v-if="isElectron && relay.blocked" class="ping-badge small ping-blocked">
-									🔒 Blocked
-								</span>
-								<span v-else class="ping-badge small" :class="getPingColorClass(relay.ping || 0)">
-									{{
-										relay.ping
-											? isMaxPing(relay.ping)
-												? `Timeout`
-												: `${relay.ping} ms`
-											: 'Measuring...'
-									}}
-								</span>
+
+								<div class="location-status">
+									<span v-if="isLocationSomeIpsBlocked(loc)" class="ping-badge ping-partial-block">
+										🔒 {{ getBlockedCount(loc) }}/{{ loc.relays.length }} Blocked
+									</span>
+									<span v-if="isLocationAllIpsBlocked(loc)" class="ping-badge ping-blocked">
+										🔒 Blocked
+									</span>
+									<template v-else class="ping-badge">
+										<span v-if="!isLocationSomeIpsBlocked(loc)" class="ping-badge">
+											{{ loc.relays.length }} Relays
+										</span>
+										<span class="ping-badge" :class="getPingColorClass(loc.avgPing)">
+											{{
+												loc.avgPing
+													? isMaxPing(loc.avgPing)
+														? `Timeout`
+														: `${loc.avgPing} ms`
+													: 'Measuring...'
+											}}
+										</span>
+									</template>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2.5"
+										stroke="currentColor"
+										class="chevron-icon"
+										:class="{ rotated: loc.isExpanded }"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+										/>
+									</svg>
+								</div>
+							</div>
+
+							<div v-show="loc.isExpanded" class="relays-drawer">
+								<div v-for="relay in loc.relays" :key="relay.ipv4" class="relay-row">
+									<div class="relay-details">
+										<input
+											v-if="isElectron"
+											type="checkbox"
+											class="ui-checkbox"
+											v-model="relay.selected"
+											:disabled="areOperationsBlocked"
+										/>
+										<span class="relay-ip" :class="{ 'text-blocked': relay.blocked }">{{
+											relay.ipv4
+										}}</span>
+									</div>
+									<span v-if="isElectron && relay.blocked" class="ping-badge small ping-blocked">
+										🔒 Blocked
+									</span>
+									<span
+										v-else
+										class="ping-badge small"
+										:class="getPingColorClass(relay.ping || 9999)"
+									>
+										{{
+											relay.ping
+												? isMaxPing(relay.ping)
+													? `Timeout`
+													: `${relay.ping} ms`
+												: 'Measuring...'
+										}}
+									</span>
+								</div>
 							</div>
 						</div>
+					</div>
+
+					<div v-if="areOperationsBlocked" class="state-container">
+						<div class="spinner"></div>
+						<p>
+							<span v-if="isLoading">Mapping worldwide infrastructure...</span>
+							<span v-else-if="isProcessingFirewall">Mapping worldwide infrastructure...</span>
+							<span v-else-if="isRefreshingPings">Refreshing Pings...</span>
+						</p>
 					</div>
 				</div>
 
@@ -315,9 +329,15 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
-import { BASE_APP_FILE_PREFIX, isMaxPing, isOsWindows, MAX_PING } from './utils/Common.util';
+import {
+	BASE_APP_FILE_PREFIX,
+	getPingColorClass,
+	isMaxPing,
+	isOsWindows,
+	MAX_PING,
+} from './utils/Common.util';
 import { GET_MOCK_GAME_META_DATA, GET_MOCK_SDR_DATA, GET_RANDOM_PING } from './utils/MockData.util';
-import type { ProcessedLocation } from '../types';
+import type { ProcessedLocation, SyncFirewallResponse } from '../types';
 import GlobeMap from './components/GlobeMap.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import NonAdminActionModal from './components/NonAdminActionModal.vue';
@@ -342,7 +362,7 @@ const gameMeta = ref({
 });
 const locations = ref<ProcessedLocation[]>([]);
 const isLoading = ref<boolean>(true);
-const isUpdatingPings = ref<boolean>(false);
+const isRefreshingPings = ref<boolean>(false);
 const isProcessingFirewall = ref<boolean>(false);
 const errorMessage = ref<string | null>(null);
 const searchQuery = ref<string>('');
@@ -387,7 +407,9 @@ const hasSelectedUnblocked = computed(() =>
 const hasSelectedBlocked = computed(() =>
 	locations.value.some((l) => l.relays.some((r) => r.selected && r.blocked)),
 );
-const areOperationsBlocked = computed(() => isLoading.value || isUpdatingPings.value);
+const areOperationsBlocked = computed(
+	() => isLoading.value || isRefreshingPings.value || isProcessingFirewall.value,
+);
 const isLocationAllIpsBlocked = computed(
 	() => (loc: ProcessedLocation) =>
 		isElectron && loc.relays.length > 0 && getBlockedCount(loc) === loc.relays.length,
@@ -429,7 +451,11 @@ const fetchGameMeta = async (steamAppId: string) => {
 			};
 		}
 	} catch (e) {
-		gameMeta.value = { title: `App ID: ${steamAppId}`, desc: 'Failed to fetch details.', image: '' };
+		gameMeta.value = {
+			title: `App ID: ${steamAppId}`,
+			desc: 'Failed to fetch details.',
+			image: '',
+		};
 	}
 };
 watch(
@@ -460,7 +486,8 @@ const pingServer = async (ip: string): Promise<number> => {
 const refreshFirewallState = async (blockedIpsOverride?: Array<string>) => {
 	if (!isElectron || !window.electronAPI) return;
 
-	const blockedIps = blockedIpsOverride || await window.electronAPI.getBlockedIps(activeAppId.value);
+	const blockedIps =
+		blockedIpsOverride || (await window.electronAPI.getBlockedIps(activeAppId.value));
 
 	locations.value.forEach((loc) => {
 		loc.relays.forEach((relay) => {
@@ -469,9 +496,9 @@ const refreshFirewallState = async (blockedIpsOverride?: Array<string>) => {
 	});
 };
 
-const triggerPings = async () => {
-	if (isUpdatingPings.value) return;
-	isUpdatingPings.value = true;
+const doPingRefresh = async () => {
+	if (isRefreshingPings.value) return;
+	isRefreshingPings.value = true;
 
 	await Promise.all(
 		filteredLocations.value.map(async (loc) => {
@@ -491,7 +518,7 @@ const triggerPings = async () => {
 	);
 
 	locations.value.sort((a, b) => a.avgPing - b.avgPing);
-	isUpdatingPings.value = false;
+	isRefreshingPings.value = false;
 };
 
 const loadGameData = async () => {
@@ -518,11 +545,11 @@ const loadGameData = async () => {
 				description: value.desc,
 				relays: (value.relays || []).map((r: any) => ({
 					...r,
-					ping: undefined,
+					ping: 9999,
 					selected: false,
 					blocked: false,
 				})),
-				avgPing: 0,
+				avgPing: 9999,
 				isExpanded: false,
 				geo: value.geo,
 			}))
@@ -531,7 +558,7 @@ const loadGameData = async () => {
 		if (isElectron) await refreshFirewallState();
 
 		isLoading.value = false;
-		await triggerPings();
+		await doPingRefresh();
 	} catch (err: any) {
 		errorMessage.value = err.message || 'An unexpected error occurred.';
 		isLoading.value = false;
@@ -624,14 +651,6 @@ const cancelSettings = () => {
 	currentView.value = 'dashboard';
 };
 
-const getPingColorClass = (ping: number): string => {
-	if (ping <= 50) return 'ping-excellent';
-	if (ping <= 100) return 'ping-good';
-	if (ping <= 200) return 'ping-fair';
-	if (ping <= 300) return 'ping-poor';
-	return 'ping-bad';
-};
-
 const getBlockedCount = (loc: ProcessedLocation) => loc.relays.filter((r) => r.blocked).length;
 const toggleLocationExpand = (index: number) => {
 	locations.value[index].isExpanded = !locations.value[index].isExpanded;
@@ -659,6 +678,28 @@ const getTargetIps = (context: 'all' | 'selected', requirement: 'blocked' | 'unb
 	return ips;
 };
 
+const executeSyncFirewall = async (
+	ipsToBlock: string[],
+	elevate: boolean,
+): Promise<SyncFirewallResponse> => {
+	if (window.electronAPI) {
+		isProcessingFirewall.value = true;
+		console.log(`calling syncFirewall(), ipsToBlock:`, ipsToBlock, 'elevate?:', elevate);
+		const syncFirewallResponse = await window.electronAPI.syncFirewall(
+			ipsToBlock,
+			elevate,
+			activeAppId.value,
+		);
+		console.log(`syncFirewallResponse:`, syncFirewallResponse, typeof syncFirewallResponse);
+		await refreshFirewallState(syncFirewallResponse.blockedIps);
+		toggleAll(false);
+		isProcessingFirewall.value = false;
+		await doPingRefresh();
+		return syncFirewallResponse;
+	}
+	return { success: false, blockedIps: [] };
+};
+
 const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: string[]) => {
 	targetIps = JSON.parse(JSON.stringify(targetIps));
 	if (targetIps.length === 0) return;
@@ -673,12 +714,7 @@ const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: str
 	}
 
 	if (isAdminAccess.value && window.electronAPI) {
-		isProcessingFirewall.value = true;
-		const blockedIps = await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
-		await refreshFirewallState(blockedIps);
-		toggleAll(false);
-		isProcessingFirewall.value = false;
-		await triggerPings();
+		await executeSyncFirewall(newBlocked, false);
 	} else {
 		nonAdminActionModal.value = { show: true, newBlocked };
 	}
@@ -713,23 +749,23 @@ const executeNonAdminActionModalChoice = async (choice: 'restart' | 'continue' |
 	}
 
 	if (choice === 'continue') {
-		isProcessingFirewall.value = true;
-		const blockedIps = await window.electronAPI.syncFirewall(newBlocked, true, activeAppId.value);
-		await refreshFirewallState(blockedIps);
-		toggleAll(false);
-		isProcessingFirewall.value = false;
-		await triggerPings();
+		await executeSyncFirewall(newBlocked, true);
 		return;
 	}
 };
 
 onMounted(async () => {
 	if (isElectron && window.electronAPI) {
-		// osPlatform.value = await window.electronAPI.getOsPlatform();
-		osPlatform.value = 'darwin';
+		osPlatform.value = await window.electronAPI.getOsPlatform();
+		console.log(`osPlatform:`, osPlatform.value, typeof osPlatform.value);
+
 		isAdminAccess.value = await window.electronAPI.checkAdminAccess();
+		console.log(`isAdminAccess:`, isAdminAccess.value, typeof isAdminAccess.value);
+
 		if (isOsWindows(osPlatform.value)) {
 			const pendingStr = localStorage.getItem(getPendingActionName());
+			console.log(`pendingStr:`, pendingStr);
+
 			if (pendingStr && isAdminAccess.value) {
 				isProcessingFirewall.value = true;
 				const pending = JSON.parse(pendingStr);
@@ -849,10 +885,6 @@ onMounted(async () => {
 	background: linear-gradient(to bottom, #0f172a, #020617);
 	box-sizing: border-box;
 }
-.left-panel,
-.left-panel * {
-	user-select: none !important;
-}
 .panel-content {
 	display: flex;
 	flex-direction: column;
@@ -951,6 +983,12 @@ onMounted(async () => {
 	color: #f87171;
 	margin-top: 0.25rem;
 }
+.download-info-text {
+	font-size: 0.9rem;
+	color: #38bdf8;
+	margin-top: 0.25rem;
+	line-height: 1.2;
+}
 .filter-input {
 	background-color: #0f172a;
 	border: 1px solid #1e293b;
@@ -973,7 +1011,6 @@ onMounted(async () => {
 	background: transparent;
 	border: none;
 	color: #94a3b8;
-	cursor: pointer;
 	padding: 0.5rem;
 	border-radius: 0.375rem;
 	transition: all 0.2s;
@@ -1003,16 +1040,24 @@ onMounted(async () => {
 	gap: 1rem;
 }
 
+.locations-wrapper {
+	position: relative;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
 .scroll-container {
 	flex: 1;
-	overflow-y: auto;
-	padding: 0.5rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
 	transform: translateZ(0);
 	will-change: scroll-position;
 	backface-visibility: hidden;
+	overflow-y: auto;
+	padding: 0.5rem;
 }
 .scroll-container::-webkit-scrollbar {
 	width: 6px;
@@ -1185,9 +1230,9 @@ onMounted(async () => {
 	border-color: rgba(34, 197, 94, 0.3);
 }
 .ping-good {
-	color: #10b981;
-	background: rgba(5, 150, 105, 0.1);
-	border-color: rgba(5, 150, 105, 0.3);
+	color: #06d2e0;
+	background: rgba(5, 150, 150, 0.1);
+	border-color: rgba(5, 145, 150, 0.3);
 }
 .ping-fair {
 	color: #facc15;
@@ -1222,12 +1267,20 @@ onMounted(async () => {
 }
 
 .state-container {
+	z-index: 1;
+	position: absolute;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	height: 15rem;
+	top: 0;
+	left: 0;
+	height: 100%;
+	width: 100%;
 	gap: 1rem;
+	background: #00000055;
+	backdrop-filter: blur(5px);
+	cursor: not-allowed;
 }
 .spinner {
 	width: 2rem;

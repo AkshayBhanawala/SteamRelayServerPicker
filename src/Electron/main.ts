@@ -2,18 +2,28 @@ import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { installIpcLogger } from 'electron-ipc-logger';
-import { APP_ID, APP_NAME, APP_NAME_TITLE_CASE, APP_NAME_TITLE_CASE_NO_SPACE, isOsMac } from '../Vue/utils/Common.util';
+import {
+	APP_ID,
+	APP_NAME,
+	APP_NAME_TITLE_CASE,
+	APP_NAME_TITLE_CASE_NO_SPACE,
+	isOsMac,
+	MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME,
+} from '../Vue/utils/Common.util';
 import path, { dirname } from 'path';
 import sudo from '@vscode/sudo-prompt';
 import ping from 'ping';
 import fs from 'fs';
 import os from 'os';
 import logger from 'electron-log/main';
+import type { SyncFirewallResponse } from '../types';
 
 const osPlatform = os.platform();
 
 const __exePath = app.getPath('exe');
-const __exeDir = isOsMac(osPlatform) ? path.join(path.dirname(__exePath), '../../../../') : path.dirname(__exePath);
+const __exeDir = isOsMac(osPlatform)
+	? path.join(path.dirname(__exePath), '../../../../')
+	: path.dirname(__exePath);
 const __appAsarPath = app.getAppPath();
 const __appDataPath = app.getPath('appData');
 const __documentsPath = app.getPath('documents');
@@ -66,9 +76,10 @@ if (osPlatform !== 'darwin') {
 }
 
 const BASE_CONFIG_SAVE_DIRECTORY = path.join(__fileStorageBasePath, 'config');
-const BASE_FIREWALL_RULE_NAME = `_${APP_NAME_TITLE_CASE_NO_SPACE}-SDRBlock--`;
-const getBlockedIpsLocalFilePath = (steamAppId: string) => path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${steamAppId}.json`);
-const getRuleName = (steamAppId: string) => `${BASE_FIREWALL_RULE_NAME}${steamAppId}`;
+const BASE_FIREWALL_RULE_NAME = `_${APP_NAME_TITLE_CASE_NO_SPACE}-SDRBlock`;
+const getBlockedIpsLocalFilePath = (steamAppId: string) =>
+	path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${steamAppId}.json`);
+const getRuleName = (steamAppId: string) => `${BASE_FIREWALL_RULE_NAME}--${steamAppId}`;
 
 let mainWindow: BrowserWindow;
 const createWindow = () => {
@@ -123,20 +134,23 @@ app.whenReady().then(async () => {
 	ipcMain.handle('get-blocked-ips', handle_GetBlockedIps);
 	ipcMain.handle('sync-firewall', handle_SyncFirewall);
 	ipcMain.handle('relaunch-elevated', handle_RelaunchElevated);
+	ipcMain.handle('quit-app', handle_QuitApp);
 
 	createWindow();
 });
 
 app.on('window-all-closed', () => {
 	logger.info(`window-all-closed - Quitting app!`);
-	logger.info(`--------------------------------------------------------------------------------------------\r\n`);
+	logger.info(
+		`--------------------------------------------------------------------------------------------\r\n`,
+	);
 	app.quit();
 });
 
 async function handle_GetOsPlatform(): Promise<NodeJS.Platform> {
 	logger.info(`IPC handler for 'get-os-platform'`);
 	return osPlatform;
-};
+}
 
 async function handle_AppCheckAdminAccess(): Promise<boolean> {
 	logger.info(`IPC handler for 'check-admin'`);
@@ -150,18 +164,22 @@ async function handle_AppCheckAdminAccess(): Promise<boolean> {
 		const isRoot = process.getuid ? process.getuid() === 0 : false;
 		return Promise.resolve(isRoot);
 	}
-};
+}
 
 async function handle_FetchSteamAppInfo(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
 	logger.info(`IPC handler for 'fetch-steam-app-info', steamAppId:`, steamAppId);
-	const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${steamAppId}`);
+	const response = await fetch(
+		`https://store.steampowered.com/api/appdetails?appids=${steamAppId}`,
+	);
 	if (!response.ok) throw new Error(`Failed to fetch Store details for App ${steamAppId}`);
 	return await response.json();
 }
 
 async function handle_FetchSteamAppSdrConfig(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
 	logger.info(`IPC handler for 'fetch-steam-app-sdr-config', steamAppId:`, steamAppId);
-	const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${steamAppId}`);
+	const response = await fetch(
+		`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${steamAppId}`,
+	);
 	if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${steamAppId}`);
 	return await response.json();
 }
@@ -170,7 +188,7 @@ async function handle_PingServer(_: Electron.IpcMainInvokeEvent, ip: string) {
 	// logger.info(`IPC handler for 'ping-server', IP:`, ip);
 	try {
 		const result = await ping.promise.probe(ip, { timeout: 2 });
-		return (result.alive && typeof result.time === 'number') ? Math.round(result.time) : 9999;
+		return result.alive && typeof result.time === 'number' ? Math.round(result.time) : 9999;
 	} catch {
 		return 9999;
 	}
@@ -191,9 +209,10 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 				if (err || !stdout) {
 					return resolve([]);
 				}
-				const ips = stdout.split('\n')
-					.map(line => line.trim())
-					.filter(line => line.length > 0);
+				const ips = stdout
+					.split('\n')
+					.map((line) => line.trim())
+					.filter((line) => line.length > 0);
 				resolve(ips);
 			});
 		});
@@ -212,10 +231,11 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 
 	// --- macOS (darwin) ---
 	else if (osPlatform === 'darwin') {
-		const macCommand = `
-			pfctl -a ${APP_ID} -s rules 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${blockedIpsOutPath}";
-			chmod 666 "${blockedIpsOutPath}";
-		`;
+		const macCommand = getMacCommand_BlockedIps({
+			anchorName: APP_ID,
+			anchorTableName: MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME,
+			blockedIpsOutPath,
+		});
 
 		// Mac PF ALWAYS requires sudo
 		success = await runElevated(macCommand);
@@ -227,9 +247,10 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 	if (success && fs.existsSync(blockedIpsOutPath)) {
 		// Read the blocked IPs file generated by the OS Firewall command
 		const rawOutput = fs.readFileSync(blockedIpsOutPath, 'utf-8');
-		blockedIps = rawOutput.split('\n')
-			.map(line => line.trim().replace(/[\0\r]/g, ''))
-			.filter(line => line.length > 0);
+		blockedIps = rawOutput
+			.split('\n')
+			.map((line) => line.trim().replace(/[\0\r]/g, ''))
+			.filter((line) => line.length > 0);
 
 		// Delete the temp output file
 		fs.unlinkSync(blockedIpsOutPath);
@@ -242,7 +263,12 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 	return blockedIps;
 }
 
-async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[], elevate: boolean, steamAppId: string) {
+async function handle_SyncFirewall(
+	_: Electron.IpcMainInvokeEvent,
+	ips: string[],
+	elevate: boolean,
+	steamAppId: string,
+): Promise<SyncFirewallResponse> {
 	logger.info(`IPC handler for 'sync-firewall'`);
 	logger.info(`Arguments.ips:`, JSON.stringify(ips));
 	logger.info(`Arguments.elevate:`, JSON.stringify(elevate));
@@ -258,7 +284,7 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 	// --- WINDOWS (win32) ---
 	if (osPlatform === 'win32') {
 		const tempScriptFileName = path.join(os.tmpdir(), `${APP_NAME}-fw-sync-${Date.now()}.ps1`);
-		const ipString = ips.map(ip => `'${ip}'`).join(',');
+		const ipString = ips.map((ip) => `'${ip}'`).join(',');
 		const psCommand = `
 			$ips = @(${ipString});
 			$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
@@ -287,13 +313,16 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 		fs.writeFileSync(tempScriptFileName, psCommand);
 
 		if (elevate) {
-			success = await runElevated(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`);
+			success = await runElevated(
+				`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`,
+			);
 		} else {
 			// Run normally...
-			success = await new Promise((resolve) => exec(
-				`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`,
-				(err) => resolve(!err)
-			));
+			success = await new Promise((resolve) =>
+				exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptFileName}"`, (err) =>
+					resolve(!err),
+				),
+			);
 		}
 	}
 
@@ -306,7 +335,7 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 			iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
 			iptables -I OUTPUT -j ${ruleName};
 		`;
-		ips.forEach(ip => {
+		ips.forEach((ip) => {
 			bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
 		});
 
@@ -323,21 +352,82 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 	// --- macOS (darwin) ---
 	else if (osPlatform === 'darwin') {
 		// macOS uses PF (Packet Filter). Write the blocked IPs to an anchor file and reload it.
-		const ipString = ips.map(ip => `"${ip}"`).join(', ');
-		const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
+
+		const pfConfPath = '/etc/pf.conf';
+		const anchorName = `${APP_ID}`;
+		const anchorFileName = `/etc/pf.anchors/${APP_ID}`;
+		const anchorTableName = MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME;
+
+		let anchorIps = ips.join(', ');
 
 		// 1. Sync pfctl
 		let macCommand = `
-			echo '${anchorContent}' > /tmp/${ruleName}_pf_rule;
-			pfctl -a ${APP_ID} -f /tmp/${ruleName}_pf_rule;
-			pfctl -E 2>/dev/null;
+			# Create anchor file with rules
+			echo "table <${anchorTableName}> { ${anchorIps} }" > "${anchorFileName}"
+			echo "block drop out quick inet from any to <${anchorTableName}> no state" >> "${anchorFileName}"
+
+			# Using anchor file in pfctl
+
+			# Define variables
+			CONF_FILE="${pfConfPath}"
+			ANCHOR_NAME="${anchorName}"
+			ANCHOR_PATH="${anchorFileName}"
+
+			if grep -q "$ANCHOR_NAME" "$CONF_FILE"; then
+				# The anchor '$ANCHOR_NAME' is already present in '$CONF_FILE'
+				echo "" 2>/dev/null;
+			else
+				# The anchor is not present '$ANCHOR_NAME' in '$CONF_FILE'
+				# Modify '$CONF_FILE'
+
+				# Backup original '$CONF_FILE'
+				cp "$CONF_FILE" "$CONF_FILE.bak"
+
+				# Create temporary file for processing
+				TMP_FILE=$(mktemp)
+
+				# Flags to trace insertion state
+				INSERTED=false
+
+				# 3. Read line by line and insert right before the first 'load anchor \\"com.apple\\"' block
+				while IFS= read -r line || [ -n "$line" ]; do
+					if [[ "$line" == *"load anchor \\"com.apple\\""* && "$INSERTED" = false ]]; then
+						echo "" >> "$TMP_FILE"
+						echo "# Custom Steam Relay Server Picker Anchor" >> "$TMP_FILE"
+						echo "load anchor \\"$ANCHOR_NAME\\" from \\"$ANCHOR_PATH\\"" >> "$TMP_FILE"
+						echo "anchor \\"$ANCHOR_NAME\\"" >> "$TMP_FILE"
+						echo "" >> "$TMP_FILE"
+						INSERTED=true
+					fi
+					echo "$line" >> "$TMP_FILE"
+				done < "$CONF_FILE"
+
+				# If no com.apple line was found, append it cleanly at the end
+				if [ "$INSERTED" = false ]; then
+					echo "" >> "$TMP_FILE"
+					echo "# Custom Steam Relay Server Picker Anchor" >> "$TMP_FILE"
+					echo "load anchor \\"$ANCHOR_NAME\\" from \\"$ANCHOR_PATH\\"" >> "$TMP_FILE"
+					echo "anchor \\"$ANCHOR_NAME\\"" >> "$TMP_FILE"
+				fi
+
+				# 4. Save changes back to /etc/pf.conf
+				cp "$TMP_FILE" "$CONF_FILE"
+				rm "$TMP_FILE"
+			fi
+
+			# 5. Flush state tables and reload the firewall configuration cleanly
+			pfctl -a "${APP_ID}" -F all
+			pfctl -F all -f /etc/pf.conf -e 2>/dev/null;
 		`;
 
 		// 2. Get active IPs from pfctl and output to temp file (grepping IPv4 addresses)
-		macCommand += `
-			pfctl -a ${APP_ID} -s rules 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${syncOutPath}";
-			chmod 666 "${syncOutPath}";
-		`;
+		macCommand += getMacCommand_BlockedIps({
+			anchorName: APP_ID,
+			anchorTableName,
+			blockedIpsOutPath: syncOutPath,
+		});
+
+		logger.info('macCommand:', macCommand);
 
 		// Mac PF ALWAYS requires sudo
 		success = await runElevated(macCommand);
@@ -354,9 +444,10 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 	if (success && outFileExists) {
 		// Read the blocked IPs file generated by the OS Firewall command
 		const rawOutput = fs.readFileSync(syncOutPath, 'utf-8');
-		blockedIps = rawOutput.split('\n')
-			.map(line => line.trim().replace(/[\0\r]/g, ''))
-			.filter(line => line.length > 0);
+		blockedIps = rawOutput
+			.split('\n')
+			.map((line) => line.trim().replace(/[\0\r]/g, ''))
+			.filter((line) => line.length > 0);
 
 		// Delete the temp output file
 		fs.unlinkSync(syncOutPath);
@@ -372,7 +463,7 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 	logger.info(`Sync IPs output file blocked IPs:`, JSON.stringify(blockedIps));
 
 	// Return the actual network firewall-blocked IPs back
-	return { success, ips: blockedIps };
+	return { success, blockedIps };
 }
 
 async function handle_RelaunchElevated() {
@@ -388,10 +479,10 @@ async function handle_RelaunchElevated() {
 		const cwd = process.cwd();
 		logger.info(`cwd:`, cwd);
 
-		if (process.env.VITE_DEV_SERVER_URL && !args.some(a => a.startsWith('--dev-server-url='))) {
+		if (process.env.VITE_DEV_SERVER_URL && !args.some((a) => a.startsWith('--dev-server-url='))) {
 			args.push(`--dev-server-url=${process.env.VITE_DEV_SERVER_URL}`);
 		}
-		let psArgs = args.length > 0 ? args.map(a => `'${a}'`).join(',') : '';
+		let psArgs = args.length > 0 ? args.map((a) => `'${a}'`).join(',') : '';
 		logger.info(`psArgs:`, psArgs);
 		if (psArgs) {
 			psArgs = `-ArgumentList '${psArgs}'`;
@@ -401,16 +492,36 @@ async function handle_RelaunchElevated() {
 		logger.info(`psCmd:`, psCmd);
 
 		exec(psCmd);
-		app.quit();
+		mainWindow.close();
 	} else {
 		// macOS/Linux: Do nothing, or log a warning. The UI shouldn't allow this to be clicked.
-		logger.warn("Relaunching as root is not supported or recommended on POSIX systems.");
+		logger.warn('Relaunching as root is not supported or recommended on POSIX systems.');
 	}
+}
+
+function getMacCommand_BlockedIps({
+	anchorName,
+	anchorTableName,
+	blockedIpsOutPath,
+}: {
+	anchorName: string;
+	anchorTableName: string;
+	blockedIpsOutPath: string;
+}) {
+	return `
+		pfctl -a "${anchorName}" -t "${anchorTableName}" -T show 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${blockedIpsOutPath}";
+		chmod 666 "${blockedIpsOutPath}";
+	`;
+}
+
+async function handle_QuitApp() {
+	logger.info(`IPC handler for 'quit-app'`);
+	mainWindow.close();
 }
 
 async function saveBlockedIpsInLocalFile(ips: string[], steamAppId: string) {
 	fs.writeFileSync(getBlockedIpsLocalFilePath(steamAppId), JSON.stringify(ips));
-};
+}
 
 async function readBlockedIpsFromLocalFile(steamAppId: string) {
 	const blockedIpsFilePath = getBlockedIpsLocalFilePath(steamAppId);
@@ -419,11 +530,11 @@ async function readBlockedIpsFromLocalFile(steamAppId: string) {
 			const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
 			return JSON.parse(data) as Array<string>;
 		} catch (e) {
-			logger.error("Failed to parse blocked IPs JSON:", e);
+			logger.error('Failed to parse blocked IPs JSON:', e);
 		}
 	}
 	return [] as Array<string>;
-};
+}
 
 async function runElevated(command: string, name: string = APP_NAME_TITLE_CASE): Promise<boolean> {
 	return new Promise((resolve) => {
@@ -436,4 +547,4 @@ async function runElevated(command: string, name: string = APP_NAME_TITLE_CASE):
 			}
 		});
 	});
-};
+}

@@ -7,7 +7,7 @@ declare global {
 			getSteamSDR: (steamAppId: string) => Promise<any>;
 			ping: (ip: string) => Promise<number>;
 			getBlockedIps: (steamAppId: string) => Promise<string[]>;
-			syncFirewall: (ips: string[], elevate: boolean, steamAppId: string) => Promise<string[]>;
+			syncFirewall: (ips: string[], elevate: boolean, steamAppId: string) => Promise<SyncFirewallResponse>;
 			relaunchElevated: () => Promise<void>;
 			quitApp: () => Promise<void>;
 		};
@@ -29,4 +29,9 @@ export interface ProcessedLocation {
 	avgPing: number;
 	isExpanded: boolean;
 	geo?: [number, number];
+}
+
+export interface SyncFirewallResponse {
+	success: boolean;
+	blockedIps: string[];
 }

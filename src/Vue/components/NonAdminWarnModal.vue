@@ -4,18 +4,18 @@
 			<h3>Root Privileges Required</h3>
 			<p>
 				You are running on
-				<strong class="highlight">{{ getOsDisplayName(osPlatform) }}</strong>.
-				<br /><br />
+				<strong class="highlight">{{ getOsDisplayName(osPlatform) }}</strong
+				>. <br /><br />
 				Viewing or modifying network firewall configurations on Unix-based systems requires elevated
-				<code>root</code>/<code>sudo</code> privileges.
+				<code>root</code>/<code>sudo</code> privileges. <br /><br />
+				Modifying <code>{{ getOsFirewallType(osPlatform) }}</code> rules can
+				<strong>permanently</strong> change your network stack if handled improperly, automated
+				modifications is disabled for your safety. <br /><br />
+				No Actions will be performed unless you provide elevated access every time (also there is no
+				going around it unless you run the app elevated).
 				<br /><br />
-				Modifying <code>{{ getOsFirewallType(osPlatform) }}</code> rules can <strong>permanently</strong> change your network
-				stack if handled improperly, automated modifications is disabled for your safety.
-				<br /><br />
-				No Actions will be performed unless you provide elevated access every time (also there is no going around it unless you run the app elevated).
-				<br /><br />
-				Application will ask you to approve <code>root</code>/<code>sudo</code> request <strong>every time</strong> it needs to access/modify rules.
-				<br /><br />
+				Application will ask you to approve <code>root</code>/<code>sudo</code> request
+				<strong>every time</strong> it needs to access/modify rules. <br /><br />
 				I hope that is understood.
 			</p>
 			<div class="modal-actions">
@@ -47,7 +47,7 @@ defineEmits<{
 	align-items: center;
 	justify-content: center;
 	z-index: 50;
-	backdrop-filter: blur(10px);
+	backdrop-filter: blur(5px);
 }
 .modal-content {
 	background: #0f172a;
@@ -55,7 +55,7 @@ defineEmits<{
 	border-radius: 0.5rem;
 	border: 1px solid #1e293b;
 	min-width: 300px;
-	max-width: 80vw;
+	max-width: 70vw;
 	text-align: justify;
 }
 .modal-content h3 {
