@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { installIpcLogger } from 'electron-ipc-logger';
-import { isOsMac } from '../Vue/utils/Common.util';
+import { APP_ID, APP_NAME, APP_NAME_TITLE_CASE, APP_NAME_TITLE_CASE_NO_SPACE, isOsMac } from '../Vue/utils/Common.util';
 import path, { dirname } from 'path';
 import sudo from '@vscode/sudo-prompt';
 import ping from 'ping';
@@ -12,15 +12,14 @@ import logger from 'electron-log/main';
 
 const osPlatform = os.platform();
 
-const appName = `SteamRelayServerPicker`;
-
 const __exePath = app.getPath('exe');
 const __exeDir = isOsMac(osPlatform) ? path.join(path.dirname(__exePath), '../../../../') : path.dirname(__exePath);
 const __appAsarPath = app.getAppPath();
 const __appDataPath = app.getPath('appData');
 const __documentsPath = app.getPath('documents');
-const __fileStorageBasePath = path.join(__documentsPath, appName);
+const __fileStorageBasePath = path.join(__documentsPath, APP_NAME_TITLE_CASE_NO_SPACE);
 const __loggerFilePath = path.join(__fileStorageBasePath, 'logs', 'main.log');
+const __tempFilesBasePath = path.join(__fileStorageBasePath, 'temp');
 
 logger.transports.file.resolvePathFn = () => __loggerFilePath;
 logger.transports.file.maxSize = 1 * 1024 * 1024; // 1 MB
@@ -36,6 +35,7 @@ logger.info(`__appAsarPath:`, __appAsarPath);
 logger.info(`__appDataPath:`, __appDataPath);
 logger.info(`__fileStorageBasePath:`, __fileStorageBasePath);
 logger.info(`__loggerFilePath:`, __loggerFilePath);
+logger.info(`__tempFilesBasePath:`, __tempFilesBasePath);
 
 const __appIconPath = path.join(__appAsarPath, 'public', 'icons', 'icon.ico');
 logger.info(`__appIconPath:`, __appIconPath);
@@ -66,9 +66,9 @@ if (osPlatform !== 'darwin') {
 }
 
 const BASE_CONFIG_SAVE_DIRECTORY = path.join(__fileStorageBasePath, 'config');
-const BASE_FIREWALL_RULE_NAME = `_${appName}-SDRBlock--`;
-const getConfigFilePath = (appId: string) => path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${appId}.json`);
-const getRuleName = (appId: string) => `${BASE_FIREWALL_RULE_NAME}${appId}`;
+const BASE_FIREWALL_RULE_NAME = `_${APP_NAME_TITLE_CASE_NO_SPACE}-SDRBlock--`;
+const getBlockedIpsLocalFilePath = (steamAppId: string) => path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${steamAppId}.json`);
+const getRuleName = (steamAppId: string) => `${BASE_FIREWALL_RULE_NAME}${steamAppId}`;
 
 let mainWindow: BrowserWindow;
 const createWindow = () => {
@@ -133,7 +133,6 @@ app.on('window-all-closed', () => {
 	app.quit();
 });
 
-
 async function handle_GetOsPlatform(): Promise<NodeJS.Platform> {
 	logger.info(`IPC handler for 'get-os-platform'`);
 	return osPlatform;
@@ -153,22 +152,22 @@ async function handle_AppCheckAdminAccess(): Promise<boolean> {
 	}
 };
 
-async function handle_FetchSteamAppInfo(_: Electron.IpcMainInvokeEvent, appId: string) {
-	logger.info(`IPC handler for 'fetch-steam-app-info'`);
-	const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`);
-	if (!response.ok) throw new Error(`Failed to fetch Store details for App ${appId}`);
+async function handle_FetchSteamAppInfo(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
+	logger.info(`IPC handler for 'fetch-steam-app-info', steamAppId:`, steamAppId);
+	const response = await fetch(`https://store.steampowered.com/api/appdetails?appids=${steamAppId}`);
+	if (!response.ok) throw new Error(`Failed to fetch Store details for App ${steamAppId}`);
 	return await response.json();
 }
 
-async function handle_FetchSteamAppSdrConfig(_: Electron.IpcMainInvokeEvent, appId: string) {
-	logger.info(`IPC handler for 'fetch-steam-app-sdr-config'`);
-	const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${appId}`);
-	if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${appId}`);
+async function handle_FetchSteamAppSdrConfig(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
+	logger.info(`IPC handler for 'fetch-steam-app-sdr-config', steamAppId:`, steamAppId);
+	const response = await fetch(`https://api.steampowered.com/ISteamApps/GetSDRConfig/v1?appid=${steamAppId}`);
+	if (!response.ok) throw new Error(`Failed to fetch Steam data for App ${steamAppId}`);
 	return await response.json();
 }
 
 async function handle_PingServer(_: Electron.IpcMainInvokeEvent, ip: string) {
-	logger.info(`IPC handler for 'ping-server'`);
+	// logger.info(`IPC handler for 'ping-server', IP:`, ip);
 	try {
 		const result = await ping.promise.probe(ip, { timeout: 2 });
 		return (result.alive && typeof result.time === 'number') ? Math.round(result.time) : 9999;
@@ -177,64 +176,114 @@ async function handle_PingServer(_: Electron.IpcMainInvokeEvent, ip: string) {
 	}
 }
 
-async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, appId: string) {
-	logger.info(`IPC handler for 'get-blocked-ips'`);
-	const ruleName = getRuleName(appId);
+async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
+	logger.info(`IPC handler for 'get-blocked-ips', steamAppId:`, steamAppId);
+
+	const ruleName = getRuleName(steamAppId);
+	const blockedIpsOutPath = path.join(os.tmpdir(), `${APP_NAME}-fw-blocked-ips-out.txt`);
+	let success = false;
 
 	if (osPlatform === 'win32') {
 		// WINDOWS: Query the OS Firewall directly (No admin required for reading)
 		return new Promise((resolve) => {
 			const psCommand = `$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
-
 			exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout) => {
-				if (err || !stdout) return resolve([]);
-
+				if (err || !stdout) {
+					return resolve([]);
+				}
 				const ips = stdout.split('\n')
 					.map(line => line.trim())
 					.filter(line => line.length > 0);
-
 				resolve(ips);
 			});
 		});
-	} else {
-		// MAC/LINUX: Read from the local state file to avoid sudo prompts on boot
-		const blockedIpsFilePath = getConfigFilePath(appId);
-		if (fs.existsSync(blockedIpsFilePath)) {
-			try {
-				const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
-				return JSON.parse(data);
-			} catch (e) {
-				logger.error("Failed to parse blocked IPs JSON:", e);
-				return [];
-			}
-		}
-		// Return empty array if file doesn't exist yet
-		return [];
 	}
+
+	// --- LINUX (linux) ---
+	else if (osPlatform === 'linux') {
+		const bashCommand = `
+			iptables -S ${ruleName} 2>/dev/null | awk '/-d/ {print $4}' | cut -d/ -f1 > "${blockedIpsOutPath}";
+			chmod 666 "${blockedIpsOutPath}";
+		`;
+
+		// Linux IPTables ALWAYS requires root
+		success = await runElevated(bashCommand);
+	}
+
+	// --- macOS (darwin) ---
+	else if (osPlatform === 'darwin') {
+		const macCommand = `
+			pfctl -a ${APP_ID} -s rules 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${blockedIpsOutPath}";
+			chmod 666 "${blockedIpsOutPath}";
+		`;
+
+		// Mac PF ALWAYS requires sudo
+		success = await runElevated(macCommand);
+	}
+
+	// --- Process the Blocked IPs Result File for Linux/Mac ---
+	let blockedIps: string[] = [];
+
+	if (success && fs.existsSync(blockedIpsOutPath)) {
+		// Read the blocked IPs file generated by the OS Firewall command
+		const rawOutput = fs.readFileSync(blockedIpsOutPath, 'utf-8');
+		blockedIps = rawOutput.split('\n')
+			.map(line => line.trim().replace(/[\0\r]/g, ''))
+			.filter(line => line.length > 0);
+
+		// Delete the temp output file
+		fs.unlinkSync(blockedIpsOutPath);
+	} else if (success) {
+		// Fallback to reading config file if the file writing command failed for any reason
+		blockedIps = await readBlockedIpsFromLocalFile(steamAppId);
+	}
+
+	// Return the actual network firewall-blocked IPs back
+	return blockedIps;
 }
 
-async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[], elevate: boolean, appId: string) {
+async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[], elevate: boolean, steamAppId: string) {
 	logger.info(`IPC handler for 'sync-firewall'`);
-	const ruleName = getRuleName(appId);
+	logger.info(`Arguments.ips:`, JSON.stringify(ips));
+	logger.info(`Arguments.elevate:`, JSON.stringify(elevate));
+	logger.info(`Arguments.steamAppId:`, JSON.stringify(steamAppId));
+
+	const ruleName = getRuleName(steamAppId);
+
+	const syncOutPath = path.join(os.tmpdir(), `${APP_NAME}-fw-sync-${Date.now()}-out.txt`);
+	logger.info(`Sync IPs output file path:`, JSON.stringify(syncOutPath));
+
 	let success = false;
 
 	// --- WINDOWS (win32) ---
 	if (osPlatform === 'win32') {
-		const tempScriptFileName = path.join(os.tmpdir(), `steam-relay-server-picker-fw-sync-${Date.now()}.ps1`);
+		const tempScriptFileName = path.join(os.tmpdir(), `${APP_NAME}-fw-sync-${Date.now()}.ps1`);
 		const ipString = ips.map(ip => `'${ip}'`).join(',');
 		const psCommand = `
-				$ips = @(${ipString});
-				$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
-				if ($ips.Count -eq 0) { if ($rule) { Remove-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue } }
-				else {
+			$ips = @(${ipString});
+			$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
+
+			# 1. Sync
+			if ($ips.Count -eq 0) {
+					if ($rule) { Remove-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue }
+			} else {
 					if ($rule) {
-						Set-NetFirewallRule -DisplayName '${ruleName}' -RemoteAddress $ips
+							Set-NetFirewallRule -DisplayName '${ruleName}' -RemoteAddress $ips
 					} else {
-						New-NetFirewallRule -DisplayName '${ruleName}' -Direction Outbound -Action Block -RemoteAddress $ips
+							New-NetFirewallRule -DisplayName '${ruleName}' -Direction Outbound -Action Block -RemoteAddress $ips
 					}
-				}
-				Remove-Item -Path "${tempScriptFileName}" -Force
-			`;
+			}
+
+			# 2. Get blocked IPs directly from the Windows Firewall and export to temp file
+			$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter;
+			if ($f) {
+					$f.RemoteAddress | Out-File -FilePath "${syncOutPath}" -Encoding UTF8
+			} else {
+					New-Item -Path "${syncOutPath}" -ItemType File -Force
+			}
+
+			Remove-Item -Path "${tempScriptFileName}" -Force
+		`;
 		fs.writeFileSync(tempScriptFileName, psCommand);
 
 		if (elevate) {
@@ -250,15 +299,22 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 
 	// --- LINUX (linux) ---
 	else if (osPlatform === 'linux') {
+		// 1. Sync iptables
 		// Linux uses iptables. Flush custom chain, then add the new IPs.
 		let bashCommand = `
-				iptables -F ${ruleName} 2>/dev/null || iptables -N ${ruleName};
-				iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
-				iptables -I OUTPUT -j ${ruleName};
-			`;
+			iptables -F ${ruleName} 2>/dev/null || iptables -N ${ruleName};
+			iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
+			iptables -I OUTPUT -j ${ruleName};
+		`;
 		ips.forEach(ip => {
 			bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
 		});
+
+		// 2. Get blocked IPs from iptables rules and output to temp file
+		bashCommand += `
+			iptables -S ${ruleName} 2>/dev/null | awk '/-d/ {print $4}' | cut -d/ -f1 > "${syncOutPath}";
+			chmod 666 "${syncOutPath}";
+		`;
 
 		// Linux IPTables ALWAYS requires root
 		success = await runElevated(bashCommand);
@@ -270,21 +326,53 @@ async function handle_SyncFirewall(_: Electron.IpcMainInvokeEvent, ips: string[]
 		const ipString = ips.map(ip => `"${ip}"`).join(', ');
 		const anchorContent = ips.length > 0 ? `block drop out proto udp to { ${ipString} }` : '';
 
-		const macCommand = `
-				echo '${anchorContent}' > /tmp/${ruleName}_pf_rule;
-				pfctl -a com.th3az.steam-relay-server-picker -f /tmp/${ruleName}_pf_rule;
-				pfctl -E;
-			`;
+		// 1. Sync pfctl
+		let macCommand = `
+			echo '${anchorContent}' > /tmp/${ruleName}_pf_rule;
+			pfctl -a ${APP_ID} -f /tmp/${ruleName}_pf_rule;
+			pfctl -E 2>/dev/null;
+		`;
+
+		// 2. Get active IPs from pfctl and output to temp file (grepping IPv4 addresses)
+		macCommand += `
+			pfctl -a ${APP_ID} -s rules 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${syncOutPath}";
+			chmod 666 "${syncOutPath}";
+		`;
 
 		// Mac PF ALWAYS requires sudo
 		success = await runElevated(macCommand);
 	}
 
-	if (success) {
-		saveIpsLocally(ips, appId);
+	logger.info(`Sync IPs command success?:`, JSON.stringify(success));
+
+	const outFileExists = fs.existsSync(syncOutPath);
+	logger.info(`Sync IPs output file exists?:`, JSON.stringify(outFileExists));
+
+	// --- Process the Blocked IPs Result File ---
+	let blockedIps: string[] = [];
+
+	if (success && outFileExists) {
+		// Read the blocked IPs file generated by the OS Firewall command
+		const rawOutput = fs.readFileSync(syncOutPath, 'utf-8');
+		blockedIps = rawOutput.split('\n')
+			.map(line => line.trim().replace(/[\0\r]/g, ''))
+			.filter(line => line.length > 0);
+
+		// Delete the temp output file
+		fs.unlinkSync(syncOutPath);
+
+		// Save to local JSON as well as a backup option
+		saveBlockedIpsInLocalFile(blockedIps, steamAppId);
+	} else if (success) {
+		// Fallback to saving config file if the file writing command failed for any reason
+		saveBlockedIpsInLocalFile(ips, steamAppId);
+		blockedIps = ips;
 	}
 
-	return success;
+	logger.info(`Sync IPs output file blocked IPs:`, JSON.stringify(blockedIps));
+
+	// Return the actual network firewall-blocked IPs back
+	return { success, ips: blockedIps };
 }
 
 async function handle_RelaunchElevated() {
@@ -320,11 +408,24 @@ async function handle_RelaunchElevated() {
 	}
 }
 
-async function saveIpsLocally(ips: string[], appId: string) {
-	fs.writeFileSync(getConfigFilePath(appId), JSON.stringify(ips));
+async function saveBlockedIpsInLocalFile(ips: string[], steamAppId: string) {
+	fs.writeFileSync(getBlockedIpsLocalFilePath(steamAppId), JSON.stringify(ips));
 };
 
-async function runElevated(command: string, name: string = 'Steam Relay Server Picker'): Promise<boolean> {
+async function readBlockedIpsFromLocalFile(steamAppId: string) {
+	const blockedIpsFilePath = getBlockedIpsLocalFilePath(steamAppId);
+	if (fs.existsSync(blockedIpsFilePath)) {
+		try {
+			const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');
+			return JSON.parse(data) as Array<string>;
+		} catch (e) {
+			logger.error("Failed to parse blocked IPs JSON:", e);
+		}
+	}
+	return [] as Array<string>;
+};
+
+async function runElevated(command: string, name: string = APP_NAME_TITLE_CASE): Promise<boolean> {
 	return new Promise((resolve) => {
 		sudo.exec(command, { name }, (error) => {
 			if (error) {

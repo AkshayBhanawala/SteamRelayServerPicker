@@ -1,8 +1,9 @@
 import { Configuration } from 'electron-builder';
+import { APP_NAME_TITLE_CASE_NO_SPACE } from './src/Vue/utils/Common.util'
 
 export const config: Configuration = {
 	appId: 'com.th3az.steam-relay-server-picker',
-	productName: 'SteamRelayServerPicker',
+	productName: APP_NAME_TITLE_CASE_NO_SPACE,
 	electronLanguages: ["en"],
 	directories: {
 		output: 'release',

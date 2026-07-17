@@ -399,23 +399,23 @@ const isLocationSomeIpsBlocked = computed(
 
 // --- Core API & Logic ---
 let fetchTimeout: number | null = null;
-const fetchGameMeta = async (appId: string) => {
-	if (!appId) return;
-	gameMeta.value = { title: `App ID: ${appId}`, desc: 'Fetching details...', image: '' };
+const fetchGameMeta = async (steamAppId: string) => {
+	if (!steamAppId) return;
+	gameMeta.value = { title: `App ID: ${steamAppId}`, desc: 'Fetching details...', image: '' };
 
 	try {
 		let data;
 		if (isStaticDemo) {
-			data = await GET_MOCK_GAME_META_DATA(appId);
+			data = await GET_MOCK_GAME_META_DATA(steamAppId);
 		} else if (isElectron && window.electronAPI) {
-			data = await window.electronAPI.getAppDetails(appId);
+			data = await window.electronAPI.getAppDetails(steamAppId);
 		} else {
-			const res = await fetch(`/api-store/api/appdetails?appids=${appId}`);
+			const res = await fetch(`/api-store/api/appdetails?appids=${steamAppId}`);
 			data = await res.json();
 		}
 
-		if (data && data[appId] && data[appId].success) {
-			const appData = data[appId].data;
+		if (data && data[steamAppId] && data[steamAppId].success) {
+			const appData = data[steamAppId].data;
 			gameMeta.value = {
 				title: appData.name,
 				desc: appData.short_description || 'No description available.',
@@ -423,13 +423,13 @@ const fetchGameMeta = async (appId: string) => {
 			};
 		} else {
 			gameMeta.value = {
-				title: `App ID: ${appId}`,
+				title: `App ID: ${steamAppId}`,
 				desc: 'Custom Application Network.',
 				image: '---INVALID---',
 			};
 		}
 	} catch (e) {
-		gameMeta.value = { title: `App ID: ${appId}`, desc: 'Failed to fetch details.', image: '' };
+		gameMeta.value = { title: `App ID: ${steamAppId}`, desc: 'Failed to fetch details.', image: '' };
 	}
 };
 watch(
@@ -457,9 +457,11 @@ const pingServer = async (ip: string): Promise<number> => {
 	}
 };
 
-const refreshFirewallState = async () => {
+const refreshFirewallState = async (blockedIpsOverride?: Array<string>) => {
 	if (!isElectron || !window.electronAPI) return;
-	const blockedIps = await window.electronAPI.getBlockedIps(activeAppId.value);
+
+	const blockedIps = blockedIpsOverride || await window.electronAPI.getBlockedIps(activeAppId.value);
+
 	locations.value.forEach((loc) => {
 		loc.relays.forEach((relay) => {
 			relay.blocked = blockedIps.includes(relay.ipv4);
@@ -672,8 +674,8 @@ const handleFirewallRequest = async (action: 'block' | 'unblock', targetIps: str
 
 	if (isAdminAccess.value && window.electronAPI) {
 		isProcessingFirewall.value = true;
-		await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
-		await refreshFirewallState();
+		const blockedIps = await window.electronAPI.syncFirewall(newBlocked, false, activeAppId.value);
+		await refreshFirewallState(blockedIps);
 		toggleAll(false);
 		isProcessingFirewall.value = false;
 		await triggerPings();
@@ -704,7 +706,7 @@ const executeNonAdminActionModalChoice = async (choice: 'restart' | 'continue' |
 	if (choice === 'restart') {
 		localStorage.setItem(
 			getPendingActionName(),
-			JSON.stringify({ ips: newBlocked, appId: activeAppId.value }),
+			JSON.stringify({ ips: newBlocked, steamAppId: activeAppId.value }),
 		);
 		await window.electronAPI.relaunchElevated();
 		return;
@@ -712,8 +714,8 @@ const executeNonAdminActionModalChoice = async (choice: 'restart' | 'continue' |
 
 	if (choice === 'continue') {
 		isProcessingFirewall.value = true;
-		await window.electronAPI.syncFirewall(newBlocked, true, activeAppId.value);
-		await refreshFirewallState();
+		const blockedIps = await window.electronAPI.syncFirewall(newBlocked, true, activeAppId.value);
+		await refreshFirewallState(blockedIps);
 		toggleAll(false);
 		isProcessingFirewall.value = false;
 		await triggerPings();
@@ -731,7 +733,7 @@ onMounted(async () => {
 			if (pendingStr && isAdminAccess.value) {
 				isProcessingFirewall.value = true;
 				const pending = JSON.parse(pendingStr);
-				await window.electronAPI.syncFirewall(pending.ips, false, pending.appId);
+				await window.electronAPI.syncFirewall(pending.ips, false, pending.steamAppId);
 				localStorage.removeItem(getPendingActionName());
 				isProcessingFirewall.value = false;
 			}

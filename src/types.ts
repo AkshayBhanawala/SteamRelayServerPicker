@@ -3,11 +3,11 @@ declare global {
 		electronAPI?: {
 			getOsPlatform: () => Promise<NodeJS.Platform>;
 			checkAdminAccess: () => Promise<boolean>;
-			getAppDetails: (appId: string) => Promise<any>;
-			getSteamSDR: (appId: string) => Promise<any>;
+			getAppDetails: (steamAppId: string) => Promise<any>;
+			getSteamSDR: (steamAppId: string) => Promise<any>;
 			ping: (ip: string) => Promise<number>;
-			getBlockedIps: (appId: string) => Promise<string[]>;
-			syncFirewall: (ips: string[], elevate: boolean, appId: string) => Promise<string[]>;
+			getBlockedIps: (steamAppId: string) => Promise<string[]>;
+			syncFirewall: (ips: string[], elevate: boolean, steamAppId: string) => Promise<string[]>;
 			relaunchElevated: () => Promise<void>;
 			quitApp: () => Promise<void>;
 		};
