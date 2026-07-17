@@ -8,9 +8,11 @@
 	SDR Server Picker |
 	Steam Datagram Relay Network |
 	Matchmaking Region Blocker |
+	MM Region Blocker |
 	Ping Optimizer |
 	CS:GO Server Picker Alternative |
 	Block Steam Servers |
+	Block Steam Region Servers |
 	Electron |
 	Vue 3 |
 	D3.js |
@@ -195,6 +197,30 @@ npm run build:electron
 # Build the Web-Only Static Demo (outputs to dist/ folder)
 npm run build:web
 ```
+
+
+## ⁉️ FAQs
+- **Is this Vide Coded fully?** \
+It's AI Assisted. I have used Google Gemini to sort out some math for the globe animation, and to write parts of this readme.
+
+- **Whats different from other available app?** \
+As far as features go, I did not see any other app allowing you to configure any desired Steam SDR supported game automatically. So that is new. Which can be useful if you are playing anything other than CS2, Deadlock and Marathon. \
+Other than that, It's just fun to look at the globe. \
+If it's not you, then I believe you can take any other available similar app. You can easily google/search "{Your game name} Server Picker" eg. "CS2 Server Picker", which will show you apps that can help you in that. But first make sure you verify that that application is trusted or not; for your own sake!
+
+- **Why Linux Untested / Unverified?** \
+I'm afraid I do not have a timeline for this. Since I am unable to test on Linux myself at the moment due to device unavailability. And I don't wanna change anything in my current system atm for my own sake. \
+If you'd like to verify yourself please download the linux version of the app from release page and let me know your experience by contacting me along with preferably screen recordings or some screenshots.
+
+- **MacOS Support?** \
+For MacOS, the process for building an app that is easily accepted by MacOS, requires signing the App with valid Mac Developer Certificate which costs payment $99 per year. And I currently do not have the means. My Apologies.
+
+- **Where to change the game from?** \
+There is a Settings icon on top right of the window, clicking that will lead you to settings page. There you can select your game or add custom Steam App ID. Though If your game do not support Steam SDR, it will not work for you I am afraid.
+
+- **Design inspiration?** \
+Not one, but many, I'm a developer not a designer, but I do look at designs sometimes to get inspiration for my projects. It just helps envision what I want my thing to look like!
+
 
 ## ⚖️ Disclaimers & Privacy Policy
 
