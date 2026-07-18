@@ -58,6 +58,7 @@ jobs:
   build-electron:
     name: Build Electron App
     strategy:
+      max-parallel: 1
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         #os: [windows-latest, ubuntu-latest]
