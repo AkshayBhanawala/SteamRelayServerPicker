@@ -8,7 +8,8 @@ import {
 	APP_NAME_TITLE_CASE,
 	APP_NAME_TITLE_CASE_NO_SPACE,
 	isOsMac,
-	MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME,
+	FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_1,
+	FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_2,
 } from '../Vue/utils/Common.util';
 import path, { dirname } from 'path';
 import sudo from '@vscode/sudo-prompt';
@@ -76,10 +77,8 @@ if (osPlatform !== 'darwin') {
 }
 
 const BASE_CONFIG_SAVE_DIRECTORY = path.join(__fileStorageBasePath, 'config');
-const BASE_FIREWALL_RULE_NAME = `_${APP_NAME_TITLE_CASE_NO_SPACE}-SDRBlock`;
-const getBlockedIpsLocalFilePath = (steamAppId: string) =>
-	path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips_${steamAppId}.json`);
-const getRuleName = (steamAppId: string) => `${BASE_FIREWALL_RULE_NAME}--${steamAppId}`;
+
+const firewallRuleNameParts = getFirewallRuleName();
 
 let mainWindow: BrowserWindow;
 const createWindow = () => {
@@ -197,14 +196,15 @@ async function handle_PingServer(_: Electron.IpcMainInvokeEvent, ip: string) {
 async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: string) {
 	logger.info(`IPC handler for 'get-blocked-ips', steamAppId:`, steamAppId);
 
-	const ruleName = getRuleName(steamAppId);
 	const blockedIpsOutPath = path.join(os.tmpdir(), `${APP_NAME}-fw-blocked-ips-out.txt`);
 	let success = false;
 
 	if (osPlatform === 'win32') {
 		// WINDOWS: Query the OS Firewall directly (No admin required for reading)
 		return new Promise((resolve) => {
-			const psCommand = `$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
+			const deprecatedFirewallRuleName = `_${APP_NAME_TITLE_CASE_NO_SPACE}-SDRBlock*`;
+
+			const psCommand = `$f = Get-NetFirewallRule -DisplayName '${deprecatedFirewallRuleName}','${firewallRuleNameParts.level1}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter; if ($f) { $f.RemoteAddress }`;
 			exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout) => {
 				if (err || !stdout) {
 					return resolve([]);
@@ -220,20 +220,20 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 
 	// --- LINUX (linux) ---
 	else if (osPlatform === 'linux') {
-		const bashCommand = `
-			iptables -S ${ruleName} 2>/dev/null | awk '/-d/ {print $4}' | cut -d/ -f1 > "${blockedIpsOutPath}";
-			chmod 666 "${blockedIpsOutPath}";
-		`;
+		const tableName = firewallRuleNameParts.level1;
+		const tableChainName = firewallRuleNameParts.level2;
+
+		const linuxCommand = getLinuxCommand_BlockedIps({ tableName, tableChainName, blockedIpsOutPath });
 
 		// Linux IPTables ALWAYS requires root
-		success = await runElevated(bashCommand);
+		success = await runElevated(linuxCommand);
 	}
 
 	// --- macOS (darwin) ---
 	else if (osPlatform === 'darwin') {
 		const macCommand = getMacCommand_BlockedIps({
-			anchorName: APP_ID,
-			anchorTableName: MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME,
+			anchorName: firewallRuleNameParts.level1,
+			anchorTableName: firewallRuleNameParts.level2,
 			blockedIpsOutPath,
 		});
 
@@ -253,10 +253,10 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 			.filter((line) => line.length > 0);
 
 		// Delete the temp output file
-		fs.unlinkSync(blockedIpsOutPath);
+		fs.rmSync(blockedIpsOutPath);
 	} else if (success) {
 		// Fallback to reading config file if the file writing command failed for any reason
-		blockedIps = await readBlockedIpsFromLocalFile(steamAppId);
+		blockedIps = await readBlockedIpsFromLocalFile();
 	}
 
 	// Return the actual network firewall-blocked IPs back
@@ -274,8 +274,6 @@ async function handle_SyncFirewall(
 	logger.info(`Arguments.elevate:`, JSON.stringify(elevate));
 	logger.info(`Arguments.steamAppId:`, JSON.stringify(steamAppId));
 
-	const ruleName = getRuleName(steamAppId);
-
 	const syncOutPath = path.join(os.tmpdir(), `${APP_NAME}-fw-sync-${Date.now()}-out.txt`);
 	logger.info(`Sync IPs output file path:`, JSON.stringify(syncOutPath));
 
@@ -287,21 +285,21 @@ async function handle_SyncFirewall(
 		const ipString = ips.map((ip) => `'${ip}'`).join(',');
 		const psCommand = `
 			$ips = @(${ipString});
-			$rule = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue;
+			$rule = Get-NetFirewallRule -DisplayName '${firewallRuleNameParts.level1}' -ErrorAction SilentlyContinue;
 
 			# 1. Sync
 			if ($ips.Count -eq 0) {
-					if ($rule) { Remove-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue }
+					if ($rule) { Remove-NetFirewallRule -DisplayName '${firewallRuleNameParts.level1}' -ErrorAction SilentlyContinue }
 			} else {
 					if ($rule) {
-							Set-NetFirewallRule -DisplayName '${ruleName}' -RemoteAddress $ips
+							Set-NetFirewallRule -DisplayName '${firewallRuleNameParts.level1}' -RemoteAddress $ips
 					} else {
-							New-NetFirewallRule -DisplayName '${ruleName}' -Direction Outbound -Action Block -RemoteAddress $ips
+							New-NetFirewallRule -DisplayName '${firewallRuleNameParts.level1}' -Direction Outbound -Action Block -RemoteAddress $ips
 					}
 			}
 
 			# 2. Get blocked IPs directly from the Windows Firewall and export to temp file
-			$f = Get-NetFirewallRule -DisplayName '${ruleName}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter;
+			$f = Get-NetFirewallRule -DisplayName '${firewallRuleNameParts.level1}' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter;
 			if ($f) {
 					$f.RemoteAddress | Out-File -FilePath "${syncOutPath}" -Encoding UTF8
 			} else {
@@ -328,22 +326,23 @@ async function handle_SyncFirewall(
 
 	// --- LINUX (linux) ---
 	else if (osPlatform === 'linux') {
-		// 1. Sync iptables
-		// Linux uses iptables. Flush custom chain, then add the new IPs.
+		const tableName = firewallRuleNameParts.level1;
+		const tableChainName = firewallRuleNameParts.level2;
+
+		// 1. Sync nftables
+		// We use a dedicated table 'ip ${tableName}' and a chain to prevent conflicts
 		let bashCommand = `
-			iptables -F ${ruleName} 2>/dev/null || iptables -N ${ruleName};
-			iptables -D OUTPUT -j ${ruleName} 2>/dev/null;
-			iptables -I OUTPUT -j ${ruleName};
+			nft add table ip ${tableName};
+			nft add chain ip ${tableName} ${tableChainName} '{ type filter hook output priority 0; }';
+			nft flush chain ip ${tableName} ${tableChainName};
 		`;
-		ips.forEach((ip) => {
-			bashCommand += `iptables -A ${ruleName} -d ${ip} -j DROP; `;
+
+		ips.forEach(ip => {
+			bashCommand += `nft add rule ip ${tableName} ${tableChainName} ip daddr ${ip} drop; `;
 		});
 
-		// 2. Get blocked IPs from iptables rules and output to temp file
-		bashCommand += `
-			iptables -S ${ruleName} 2>/dev/null | awk '/-d/ {print $4}' | cut -d/ -f1 > "${syncOutPath}";
-			chmod 666 "${syncOutPath}";
-		`;
+		// 2. Get active IPs from nftables rules and output to temp file
+		bashCommand += getLinuxCommand_BlockedIps({ tableName, tableChainName, blockedIpsOutPath: syncOutPath });
 
 		// Linux IPTables ALWAYS requires root
 		success = await runElevated(bashCommand);
@@ -354,9 +353,9 @@ async function handle_SyncFirewall(
 		// macOS uses PF (Packet Filter). Write the blocked IPs to an anchor file and reload it.
 
 		const pfConfPath = '/etc/pf.conf';
-		const anchorName = `${APP_ID}`;
-		const anchorFileName = `/etc/pf.anchors/${APP_ID}`;
-		const anchorTableName = MAC_PF_ANCHOR_BLOCKED_IPS_TABLE_NAME;
+		const anchorName = firewallRuleNameParts.level1;
+		const anchorTableName = firewallRuleNameParts.level2;
+		const anchorFileName = `/etc/pf.anchors/${anchorName}`;
 
 		let anchorIps = ips.join(', ');
 
@@ -453,10 +452,10 @@ async function handle_SyncFirewall(
 		fs.unlinkSync(syncOutPath);
 
 		// Save to local JSON as well as a backup option
-		saveBlockedIpsInLocalFile(blockedIps, steamAppId);
+		saveBlockedIpsInLocalFile(blockedIps);
 	} else if (success) {
 		// Fallback to saving config file if the file writing command failed for any reason
-		saveBlockedIpsInLocalFile(ips, steamAppId);
+		saveBlockedIpsInLocalFile(ips);
 		blockedIps = ips;
 	}
 
@@ -499,6 +498,38 @@ async function handle_RelaunchElevated() {
 	}
 }
 
+function getFirewallRuleName() {
+	switch (osPlatform) {
+		case 'win32':
+			return { level1: `${FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_1}_${FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_2}`, level2: '' };
+
+		case 'linux':
+			return { level1: FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_1, level2: FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_2 };
+
+		case 'darwin':
+			return { level1: FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_1, level2: FIREWALL_BLOCK_IP_RULE_NAME_LEVEL_2 };
+
+		default:
+			return { level1: '', level2: '' };
+	}
+}
+
+function getLinuxCommand_BlockedIps({
+	tableName,
+	tableChainName,
+	blockedIpsOutPath,
+}: {
+	tableName: string;
+	tableChainName: string;
+	blockedIpsOutPath: string;
+}) {
+	// Note: Use '|| true' so that if there are 0 IPs, grep's exit code 1 doesn't fail the entire script
+	return `
+		nft list chain ip ${tableName} ${tableChainName} 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' > "${blockedIpsOutPath}" || true;
+		chmod 666 "${blockedIpsOutPath}";
+	`;
+}
+
 function getMacCommand_BlockedIps({
 	anchorName,
 	anchorTableName,
@@ -514,17 +545,21 @@ function getMacCommand_BlockedIps({
 	`;
 }
 
+function getBlockedIpsLocalFilePath() {
+	return path.join(BASE_CONFIG_SAVE_DIRECTORY, `blocked_ips.json`);
+}
+
 async function handle_QuitApp() {
 	logger.info(`IPC handler for 'quit-app'`);
 	mainWindow.close();
 }
 
-async function saveBlockedIpsInLocalFile(ips: string[], steamAppId: string) {
-	fs.writeFileSync(getBlockedIpsLocalFilePath(steamAppId), JSON.stringify(ips));
+async function saveBlockedIpsInLocalFile(ips: string[]) {
+	fs.writeFileSync(getBlockedIpsLocalFilePath(), JSON.stringify(ips));
 }
 
-async function readBlockedIpsFromLocalFile(steamAppId: string) {
-	const blockedIpsFilePath = getBlockedIpsLocalFilePath(steamAppId);
+async function readBlockedIpsFromLocalFile() {
+	const blockedIpsFilePath = getBlockedIpsLocalFilePath();
 	if (fs.existsSync(blockedIpsFilePath)) {
 		try {
 			const data = fs.readFileSync(blockedIpsFilePath, 'utf-8');

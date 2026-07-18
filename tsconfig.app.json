@@ -18,5 +18,5 @@
 		"src/Vue/**/*.vue",
 		"src/Electron/**/*.ts"
 	],
-	"exclude": ["dist", "dist-electron", "release"]
+	"exclude": ["node_modules", "dist", "dist-electron", "release"]
 }
