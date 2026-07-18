@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import * as d3 from 'd3';
-import { isMaxPing } from '../utils/Common.util';
+import { getPingColorHex, isMaxPing } from '../utils/Common.util';
 import type { ProcessedLocation } from '../../types';
 
 const props = defineProps<{
@@ -148,8 +148,12 @@ const drawMap = () => {
 
 	// 3.5 Draw Inner Vignette (3D Sphere Depth)
 	const vignette = ctx.createRadialGradient(
-		cx, cy, currentRadius * 0.1, // Start fading near the middle
-		cx, cy, currentRadius * 1.02 // End exactly at the globe edge
+		cx,
+		cy,
+		currentRadius * 0.1, // Start fading near the middle
+		cx,
+		cy,
+		currentRadius * 1.02, // End exactly at the globe edge
 	);
 	vignette.addColorStop(0, 'rgba(2, 6, 23, 0)'); // Transparent core
 	vignette.addColorStop(1, 'rgba(2, 6, 23, 0.9)'); // Dark edges matching background
@@ -277,14 +281,6 @@ const handleMapClick = () => {
 	if (hoveredLoc.value) {
 		emit('location-click', hoveredLoc.value.id);
 	}
-};
-
-const getPingColorHex = (ping: number) => {
-	if (ping === 999 || !ping) return '#ef4444';
-	if (ping <= 50) return '#10b981';
-	if (ping <= 100) return '#eab308';
-	if (ping <= 200) return '#f97316';
-	return '#ef4444';
 };
 
 const handleResize = (entries: ResizeObserverEntry[]) => {
@@ -436,7 +432,6 @@ onBeforeUnmount(() => {
 	width: 100%;
 	height: 100%;
 	outline: none;
-	user-select: none;
 }
 .map-tooltip {
 	position: fixed;
@@ -447,7 +442,7 @@ onBeforeUnmount(() => {
 	padding: 0.75rem;
 	pointer-events: none;
 	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-	backdrop-filter: blur(4px);
+	backdrop-filter: blur(5px);
 	min-width: 200px;
 }
 .map-tooltip h4 {
@@ -470,5 +465,6 @@ onBeforeUnmount(() => {
 	display: flex;
 	flex-direction: row;
 	justify-content: space-between;
+	gap: 1rem;
 }
 </style>

@@ -1,17 +1,17 @@
-export async function GET_MOCK_GAME_META_DATA(appId: string) {
+export async function GET_MOCK_GAME_META_DATA(steamAppId: string) {
 	await waitForMs(getRandomInt(50, 400));
 	return {
-		[appId]: {
+		[steamAppId]: {
 			success: true,
 			data: {
 				name:
-					appId === '730'
+					steamAppId === '730'
 						? 'Counter-Strike 2'
-						: appId === '1422450'
+						: steamAppId === '1422450'
 							? 'Deadlock'
-							: `App ID: ${appId}`,
+							: `App ID: ${steamAppId}`,
 				short_description: 'Web Demo Mock Data',
-				header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`,
+				header_image: `https://cdn.akamai.steamstatic.com/steam/apps/${steamAppId}/header.jpg`,
 			}
 		}
 	};
