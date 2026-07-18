@@ -253,7 +253,11 @@ async function handle_GetBlockedIps(_: Electron.IpcMainInvokeEvent, steamAppId: 
 			.filter((line) => line.length > 0);
 
 		// Delete the temp output file
-		fs.rmSync(blockedIpsOutPath);
+		try {
+			fs.rmSync(blockedIpsOutPath);
+		} catch (error) {
+			logger.error(`File Delete Failure, file:`, blockedIpsOutPath, `Error:`, error);
+		}
 	} else if (success) {
 		// Fallback to reading config file if the file writing command failed for any reason
 		blockedIps = await readBlockedIpsFromLocalFile();
@@ -449,7 +453,11 @@ async function handle_SyncFirewall(
 			.filter((line) => line.length > 0);
 
 		// Delete the temp output file
-		fs.unlinkSync(syncOutPath);
+		try {
+			fs.rmSync(syncOutPath);
+		} catch (error) {
+			logger.error(`File Delete Failure, file:`, syncOutPath, `Error:`, error);
+		}
 
 		// Save to local JSON as well as a backup option
 		saveBlockedIpsInLocalFile(blockedIps);

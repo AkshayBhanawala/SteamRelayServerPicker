@@ -729,7 +729,7 @@ const executeNonAdminWarnModalChoice = async (choice: 'continue' | 'cancel') => 
 	}
 
 	if (choice === 'continue') {
-		setTimeout(() => loadGameData(), 100);
+		setTimeout(() => loadGameData(), 1000);
 	}
 };
 
